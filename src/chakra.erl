@@ -4,17 +4,23 @@
 -on_load(init/0).
 
 -export([
-    create_runtime/0,
-    create_runtime/1
+    create_context/0,
+    create_context/1,
+
+    run/2
 ]).
 
 
-create_runtime() ->
-    create_runtime([]).
+create_context() ->
+    create_context([]).
 
 
-create_runtime(Options) ->
-    nif_create_runtime(Options).
+create_context(Options) ->
+    nif_create_context(Options).
+
+
+run(Ctx, Script) ->
+    nif_run(Ctx, Script).
 
 
 init() ->
@@ -29,5 +35,9 @@ init() ->
     erlang:load_nif(filename:join(PrivDir, "chakra"), 0).
 
 
-nif_create_runtime(_Options) ->
+nif_create_context(_Options) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_run(_Ctx, _Script) ->
     erlang:nif_error(chakra_nif_not_loaded).
