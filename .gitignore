@@ -1,0 +1,10 @@
+.eunit/
+.rebar/
+ebin/
+priv/
+
+c_src/*.d
+c_src/*.o
+
+compile_commands.json
+erln8.config

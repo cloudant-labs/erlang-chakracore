@@ -1,0 +1,8 @@
+{application, chakra, [
+    {description, "Erlang bindings for ChakraCore"},
+    {vsn, "0.0.0"},
+    {registered, []},
+    {applications, [kernel, stdlib]},
+    {maintainers, ["Paul J. Davis"]},
+    {links, [{"GitHub", "https://github.com/cloudant-labs/erlang-chakracore"}]}
+]}.
