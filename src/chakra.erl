@@ -7,7 +7,8 @@
     create_context/0,
     create_context/1,
 
-    run/2
+    run/2,
+    gc/1
 ]).
 
 
@@ -21,6 +22,10 @@ create_context(Options) ->
 
 run(Ctx, Script) ->
     nif_run(Ctx, Script).
+
+
+gc(Ctx) ->
+    nif_gc(Ctx).
 
 
 init() ->
@@ -40,4 +45,8 @@ nif_create_context(_Options) ->
 
 
 nif_run(_Ctx, _Script) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_gc(_Ctx) ->
     erlang:nif_error(chakra_nif_not_loaded).
