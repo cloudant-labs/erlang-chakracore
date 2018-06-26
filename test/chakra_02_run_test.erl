@@ -29,4 +29,4 @@ run_after_exception_test() ->
     Script1 = <<"throw \"I am exceptional!\"">>,
     Script2 = <<"2;">>,
     ?assertMatch({exception, _}, chakra:run(Ctx, Script1)),
-    ?assertEqual({ok, <<"2">>}, chakra:run(Ctx, Script2)).
+    ?assertEqual({ok, 2}, chakra:run(Ctx, Script2)).

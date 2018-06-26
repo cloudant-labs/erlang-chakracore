@@ -14,7 +14,7 @@ call_arg_test() ->
     {ok, Ctx} = chakra:create_context(),
     Script = <<"function dbl(val) {return val * 2;}">>,
     ?assertMatch({ok, _}, chakra:run(Ctx, Script)),
-    ?assertEqual({ok, <<"2">>}, chakra:call(Ctx, dbl, [1])).
+    ?assertEqual({ok, 2}, chakra:call(Ctx, dbl, [1])).
 
 
 call_multi_arg_test() ->
