@@ -1,4 +1,4 @@
--module(chakra_04_gc_test).
+-module(chakra_05_gc_test).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -15,3 +15,6 @@ small_gc_test() ->
         ?assertMatch({ok, _}, chakra:run(Ctx, <<"baz();">>))
     end, lists:seq(1, 100)),
     ?assertEqual(ok, chakra:gc(Ctx)).
+
+
+% Test garbage collected binary script
