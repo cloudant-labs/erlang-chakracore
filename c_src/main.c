@@ -40,6 +40,7 @@ typedef struct {
     JsRuntimeHandle runtime;
     JsContextRef context;
     JsSourceContext source_ctx;
+    bool allow_script_interrupt;
 } ErlChakraCtx;
 
 
@@ -179,12 +180,17 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
 
+    ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
+    ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
+    ctx->allow_script_interrupt = false;
+
     list = argv[0];
     JsRuntimeAttributes attrs = JsRuntimeAttributeNone;
     while(enif_get_list_cell(env, list, &opt, &list)) {
         if(enif_is_identical(opt, atom_disable_background_work)) {
             attrs |= JsRuntimeAttributeDisableBackgroundWork;
         } else if(enif_is_identical(opt, atom_allow_script_interrupt)) {
+            ctx->allow_script_interrupt = true;
             attrs |= JsRuntimeAttributeAllowScriptInterrupt;
         } else if(enif_is_identical(opt, atom_enable_idle_processing)) {
             attrs |= JsRuntimeAttributeEnableIdleProcessing;
@@ -195,12 +201,10 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         } else if(enif_is_identical(opt, atom_enable_experimental_features)) {
             attrs |= JsRuntimeAttributeEnableExperimentalFeatures;
         } else {
+            enif_release_resource(ctx);
             return enif_make_badarg(env);
         }
     }
-
-    ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
-    ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
 
     err = JsCreateRuntime(attrs, NULL, &(ctx->runtime));
     if(err != JsNoError) {
@@ -520,13 +524,160 @@ done:
 }
 
 
+static ERL_NIF_TERM
+nif_enable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsEnableRuntimeExecution(ctx->runtime);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    ret = atom_ok;
+
+done:
+    if(err != JsNoError) {
+        ret = js2erl_error(&conv, err);
+    }
+
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return ret;
+}
+
+
+static ERL_NIF_TERM
+nif_disable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsDisableRuntimeExecution(ctx->runtime);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    ret = atom_ok;
+
+done:
+    if(err != JsNoError) {
+        ret = js2erl_error(&conv, err);
+    }
+
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return ret;
+}
+
+
+static ERL_NIF_TERM
+nif_interrupt(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    // No check pid as interrupts can come from different
+    // threads and Chakra guarantees that this is kosher.
+
+    // JSRT behaves kinda funny returning no_current_context
+    // if the Runtime was created without AllowScriptInterrupt
+    // so we have to check our stored flag.
+    if(!ctx->allow_script_interrupt) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsDisableRuntimeExecution(ctx->runtime);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    ret = atom_ok;
+
+done:
+    if(err != JsNoError) {
+        ret = js2erl_error(&conv, err);
+    }
+
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return ret;
+}
+
+
 static ErlNifFunc funcs[] =
 {
     {"nif_create_context", 1, nif_create_context, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_run", 2, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_call", 3, nif_call, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_gc", 1, nif_gc, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND}
+    {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_enable", 1, nif_enable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_disable", 1, nif_disable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+
+    // Notice that nif_interrupt is intentionally not a
+    // dirty CPU NIF. This is so that if we have run-away
+    // JS code on all dirty CPU schedulers we can still
+    // use the main interpreter schedulers to interrupt them.
+    {"nif_interrupt", 1, nif_interrupt, 0},
 };
 
 ERL_NIF_INIT(chakra, funcs, &load, NULL, NULL, &unload);

@@ -11,7 +11,11 @@
     call/3,
 
     gc/1,
-    idle/1
+    idle/1,
+
+    enable/1,
+    disable/1,
+    interrupt/1
 ]).
 
 
@@ -37,6 +41,18 @@ gc(Ctx) ->
 
 idle(Ctx) ->
     nif_idle(Ctx).
+
+
+enable(Ctx) ->
+    nif_enable(Ctx).
+
+
+disable(Ctx) ->
+    nif_disable(Ctx).
+
+
+interrupt(Ctx) ->
+    nif_interrupt(Ctx).
 
 
 init() ->
@@ -69,3 +85,16 @@ nif_gc(_Ctx) ->
 
 nif_idle(_Ctx) ->
     erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_enable(_Ctx) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_disable(_Ctx) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_interrupt(_Ctx) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
