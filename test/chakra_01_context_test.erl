@@ -26,6 +26,7 @@ idle_test() ->
 
 opt_test() ->
     Options = [
+        {memory_limit, 1048576},
         disable_background_work,
         allow_script_interrupt,
         enable_idle_processing,
@@ -39,5 +40,10 @@ opt_test() ->
 
 
 bad_opt_test() ->
+    ?assertError(badarg, chakra:create_context([{}])),
+    ?assertError(badarg, chakra:create_context([{a, b, c}])),
+    ?assertError(badarg, chakra:create_context([{foo, 0}])),
+    ?assertError(badarg, chakra:create_context([{memory_limit, false}])),
+    ?assertError(badarg, chakra:create_context([{memory_limit, -2}])),
     ?assertError(badarg, chakra:create_context([bad_arg_name])),
     ?assertError(badarg, chakra:create_context([disable_eval, bad_arg_name])).

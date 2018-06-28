@@ -20,11 +20,13 @@ ERL_NIF_TERM atom_exception;
 ERL_NIF_TERM atom_false;
 ERL_NIF_TERM atom_invalid_term;
 ERL_NIF_TERM atom_null;
+ERL_NIF_TERM atom_out_of_memory;
 ERL_NIF_TERM atom_true;
 ERL_NIF_TERM atom_undefined;
 ERL_NIF_TERM atom_unknown;
 
 // Runtime Attribute atoms
+ERL_NIF_TERM atom_memory_limit;
 ERL_NIF_TERM atom_disable_background_work;
 ERL_NIF_TERM atom_allow_script_interrupt;
 ERL_NIF_TERM atom_enable_idle_processing;
@@ -124,10 +126,12 @@ load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
     atom_false = mkatom(env, "false");
     atom_invalid_term = mkatom(env, "invalid_term");
     atom_null = mkatom(env, "null");
+    atom_out_of_memory = mkatom(env, "out_of_memory");
     atom_true = mkatom(env, "true");
     atom_undefined = mkatom(env, "undefined");
     atom_unknown = mkatom(env, "unknown");
 
+    atom_memory_limit = mkatom(env, "memory_limit");
     atom_disable_background_work = mkatom(env, "disable_background_work");
     atom_allow_script_interrupt = mkatom(env, "allow_script_interrupt");
     atom_enable_idle_processing = mkatom(env, "enable_idle_processing");
@@ -165,12 +169,16 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     ErlChakraCtx* ctx = NULL;
     ErlChakraConv conv;
+    const ERL_NIF_TERM* tuple;
     ERL_NIF_TERM opt;
     ERL_NIF_TERM list;
     ERL_NIF_TERM ret;
+    int memory_limit = -1;
+    int arity;
     JsErrorCode err;
 
     init_conv(&conv, env);
+    conv.convert_exception = false;
 
     if(argc != 1) {
         return enif_make_badarg(env);
@@ -180,17 +188,29 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
 
-    ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
-    ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
-    ctx->allow_script_interrupt = false;
-
     list = argv[0];
     JsRuntimeAttributes attrs = JsRuntimeAttributeNone;
     while(enif_get_list_cell(env, list, &opt, &list)) {
-        if(enif_is_identical(opt, atom_disable_background_work)) {
+        if(enif_is_tuple(env, opt)) {
+            if(!enif_get_tuple(env, opt, &arity, &tuple)) {
+                return enif_make_badarg(env);
+            }
+            if(arity != 2) {
+                return enif_make_badarg(env);
+            }
+            if(enif_is_identical(tuple[0], atom_memory_limit)) {
+                if(!enif_get_int(env, tuple[1], &memory_limit)) {
+                    return enif_make_badarg(env);
+                }
+                if(memory_limit < -1) {
+                    return enif_make_badarg(env);
+                }
+            } else {
+                return enif_make_badarg(env);
+            }
+        } else if(enif_is_identical(opt, atom_disable_background_work)) {
             attrs |= JsRuntimeAttributeDisableBackgroundWork;
         } else if(enif_is_identical(opt, atom_allow_script_interrupt)) {
-            ctx->allow_script_interrupt = true;
             attrs |= JsRuntimeAttributeAllowScriptInterrupt;
         } else if(enif_is_identical(opt, atom_enable_idle_processing)) {
             attrs |= JsRuntimeAttributeEnableIdleProcessing;
@@ -201,14 +221,28 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         } else if(enif_is_identical(opt, atom_enable_experimental_features)) {
             attrs |= JsRuntimeAttributeEnableExperimentalFeatures;
         } else {
-            enif_release_resource(ctx);
             return enif_make_badarg(env);
         }
+    }
+
+    ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
+    ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
+
+    if((attrs & JsRuntimeAttributeAllowScriptInterrupt) == 0) {
+        ctx->allow_script_interrupt = false;
+    } else {
+        ctx->allow_script_interrupt = true;
     }
 
     err = JsCreateRuntime(attrs, NULL, &(ctx->runtime));
     if(err != JsNoError) {
         ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
+        enif_release_resource(ctx);
+        return js2erl_error(&conv, err);
+    }
+
+    err = JsSetRuntimeMemoryLimit(ctx->runtime, memory_limit);
+    if(err != JsNoError) {
         enif_release_resource(ctx);
         return js2erl_error(&conv, err);
     }
@@ -1101,6 +1135,11 @@ js2erl_object(ErlChakraConv* conv, JsValueRef obj)
     JsErrorCode err;
 
     err = JsGetOwnPropertyNames(obj, &prop_names);
+    // Kinda hack, but if we hit out of memory then
+    // this call fails with out of memory as well...
+    if(err == JsErrorScriptException) {
+        return atom_out_of_memory;
+    }
     if(err != JsNoError) {
         return js2erl_error(conv, err);
     }
@@ -1328,8 +1367,6 @@ js2erl_error(ErlChakraConv* conv, JsErrorCode err)
         ret = js2erl(conv, exc);
         if(!conv->failed) {
             ret = t2(conv->env, atom_exception, ret);
-        } else {
-            ret = t2(conv->env, atom_error, ret);
         }
     } else {
         ret = t2(conv->env, atom_error, js2erl_error_code(conv, err));

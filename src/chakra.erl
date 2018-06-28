@@ -19,10 +19,23 @@
 ]).
 
 
+-type context_opt() :: [
+    {memory_limit, integer()}
+    | disable_background_work
+    | allow_script_interrupt
+    | enable_idle_processing
+    | disable_native_code_generation
+    | disable_eval
+    | enable_experimental_features
+].
+
+
+-spec create_context() -> {ok, reference()} | {error, atom()}.
 create_context() ->
     create_context([]).
 
 
+-spec create_context([context_opt()]) -> {ok, reference()} | {error, atom()}.
 create_context(Options) ->
     nif_create_context(Options).
 
