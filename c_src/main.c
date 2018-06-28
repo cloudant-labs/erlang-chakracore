@@ -24,6 +24,14 @@ ERL_NIF_TERM atom_true;
 ERL_NIF_TERM atom_undefined;
 ERL_NIF_TERM atom_unknown;
 
+// Runtime Attribute atoms
+ERL_NIF_TERM atom_disable_background_work;
+ERL_NIF_TERM atom_allow_script_interrupt;
+ERL_NIF_TERM atom_enable_idle_processing;
+ERL_NIF_TERM atom_disable_native_code_generation;
+ERL_NIF_TERM atom_disable_eval;
+ERL_NIF_TERM atom_enable_experimental_features;
+// Ignoring dispatch set exception
 
 ErlNifResourceType* ErlChakraCtxRes;
 
@@ -109,15 +117,24 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
 static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
 {
-    atom_ok = enif_make_atom(env, "ok");
-    atom_error = enif_make_atom(env, "error");
-    atom_exception = enif_make_atom(env, "exception");
-    atom_false = enif_make_atom(env, "false");
-    atom_invalid_term = enif_make_atom(env, "invalid_term");
-    atom_null = enif_make_atom(env, "null");
-    atom_true = enif_make_atom(env, "true");
-    atom_undefined = enif_make_atom(env, "undefined");
-    atom_unknown = enif_make_atom(env, "unknown");
+    atom_ok = mkatom(env, "ok");
+    atom_error = mkatom(env, "error");
+    atom_exception = mkatom(env, "exception");
+    atom_false = mkatom(env, "false");
+    atom_invalid_term = mkatom(env, "invalid_term");
+    atom_null = mkatom(env, "null");
+    atom_true = mkatom(env, "true");
+    atom_undefined = mkatom(env, "undefined");
+    atom_unknown = mkatom(env, "unknown");
+
+    atom_disable_background_work = mkatom(env, "disable_background_work");
+    atom_allow_script_interrupt = mkatom(env, "allow_script_interrupt");
+    atom_enable_idle_processing = mkatom(env, "enable_idle_processing");
+    atom_disable_native_code_generation =
+            mkatom(env, "disable_native_code_generation");
+    atom_disable_eval = mkatom(env, "disable_eval");
+    atom_enable_experimental_features =
+            mkatom(env, "enable_experimental_features");
 
     ErlChakraCtxRes = enif_open_resource_type(
             env,
@@ -147,6 +164,8 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     ErlChakraCtx* ctx = NULL;
     ErlChakraConv conv;
+    ERL_NIF_TERM opt;
+    ERL_NIF_TERM list;
     ERL_NIF_TERM ret;
     JsErrorCode err;
 
@@ -160,10 +179,30 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
 
+    list = argv[0];
+    JsRuntimeAttributes attrs = JsRuntimeAttributeNone;
+    while(enif_get_list_cell(env, list, &opt, &list)) {
+        if(enif_is_identical(opt, atom_disable_background_work)) {
+            attrs |= JsRuntimeAttributeDisableBackgroundWork;
+        } else if(enif_is_identical(opt, atom_allow_script_interrupt)) {
+            attrs |= JsRuntimeAttributeAllowScriptInterrupt;
+        } else if(enif_is_identical(opt, atom_enable_idle_processing)) {
+            attrs |= JsRuntimeAttributeEnableIdleProcessing;
+        } else if(enif_is_identical(opt, atom_disable_native_code_generation)) {
+            attrs |= JsRuntimeAttributeDisableNativeCodeGeneration;
+        } else if(enif_is_identical(opt, atom_disable_eval)) {
+            attrs |= JsRuntimeAttributeDisableEval;
+        } else if(enif_is_identical(opt, atom_enable_experimental_features)) {
+            attrs |= JsRuntimeAttributeEnableExperimentalFeatures;
+        } else {
+            return enif_make_badarg(env);
+        }
+    }
+
     ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
     ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
 
-    err = JsCreateRuntime(JsRuntimeAttributeNone, NULL, &(ctx->runtime));
+    err = JsCreateRuntime(attrs, NULL, &(ctx->runtime));
     if(err != JsNoError) {
         ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
         enif_release_resource(ctx);
@@ -388,14 +427,13 @@ done:
 }
 
 
-
 static ERL_NIF_TERM
 nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
     ErlChakraCtx* ctx;
     ErlChakraConv conv;
-
+    ERL_NIF_TERM ret;
     JsErrorCode err;
 
     init_conv(&conv, env);
@@ -413,12 +451,72 @@ nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
 
-    err = JsCollectGarbage(ctx->runtime);
+    err = JsSetCurrentContext(ctx->context);
     if(err != JsNoError) {
-        return js2erl_error(&conv, err);
+        goto done;
     }
 
-    return atom_ok;
+    err = JsCollectGarbage(ctx->runtime);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    ret = atom_ok;
+
+done:
+    if(err != JsNoError) {
+        ret = js2erl_error(&conv, err);
+    }
+
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return ret;
+}
+
+
+static ERL_NIF_TERM
+nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    unsigned int ticks;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsIdle(&ticks);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    ret = t2(env, atom_ok, enif_make_uint(env, ticks));
+
+done:
+    if(err != JsNoError) {
+        ret = js2erl_error(&conv, err);
+    }
+
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return ret;
 }
 
 
@@ -427,7 +525,8 @@ static ErlNifFunc funcs[] =
     {"nif_create_context", 1, nif_create_context, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_run", 2, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_call", 3, nif_call, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_gc", 1, nif_gc, ERL_NIF_DIRTY_JOB_CPU_BOUND}
+    {"nif_gc", 1, nif_gc, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND}
 };
 
 ERL_NIF_INIT(chakra, funcs, &load, NULL, NULL, &unload);

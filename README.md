@@ -7,12 +7,11 @@ Yep.
 ToDo
 ---
 
-* Add "dot.ed.name" syntax to chakra:call
-* Bind context to process
 * Add runtime options
   * Add resource limits
   * Add resource tracking?
   * Add script interrupt? Per call?
+* Add "dot.ed.name" syntax to chakra:call
 * Add function resources so we can return a function that can be invoked
 * Add erlang.send? Or some other callback communication?
 * Raise errors and return unwrapped?

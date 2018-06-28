@@ -9,7 +9,9 @@
 
     run/2,
     call/3,
-    gc/1
+
+    gc/1,
+    idle/1
 ]).
 
 
@@ -31,6 +33,10 @@ call(Ctx, Name, Args) when is_list(Args) ->
 
 gc(Ctx) ->
     nif_gc(Ctx).
+
+
+idle(Ctx) ->
+    nif_idle(Ctx).
 
 
 init() ->
@@ -58,4 +64,8 @@ nif_call(_Ctx, _Name, _Args) ->
 
 
 nif_gc(_Ctx) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_idle(_Ctx) ->
     erlang:nif_error(chakra_nif_not_loaded).
