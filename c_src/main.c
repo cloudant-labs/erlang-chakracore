@@ -28,6 +28,7 @@ ERL_NIF_TERM atom_unknown;
 ErlNifResourceType* ErlChakraCtxRes;
 
 typedef struct {
+    ErlNifPid pid;
     JsRuntimeHandle runtime;
     JsContextRef context;
     JsSourceContext source_ctx;
@@ -74,6 +75,20 @@ init_conv(ErlChakraConv* conv, ErlNifEnv* env)
     conv->env = env;
     conv->convert_exception = true;
     conv->failed = false;
+}
+
+
+bool
+check_pid(ErlNifEnv* env, ErlChakraCtx* ctx)
+{
+    ErlNifPid pid;
+    enif_self(env, &pid);
+
+    if(enif_compare(pid.pid, ctx->pid.pid) == 0) {
+        return true;
+    }
+
+    return false;
 }
 
 
@@ -167,6 +182,7 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return js2erl_error(&conv, err);
     }
 
+    enif_self(env, &(ctx->pid));
     ctx->source_ctx = 0;
 
     ret = enif_make_resource(env, ctx);
@@ -202,6 +218,10 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx)) {
+        return enif_make_badarg(env);
+    }
 
     if(!enif_inspect_binary(env, argv[1], &src)) {
         return enif_make_badarg(env);
@@ -283,6 +303,10 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx)) {
+        return enif_make_badarg(env);
+    }
 
     err = JsSetCurrentContext(ctx->context);
     if(err != JsNoError) {
@@ -384,6 +408,10 @@ nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx)) {
+        return enif_make_badarg(env);
+    }
 
     err = JsCollectGarbage(ctx->runtime);
     if(err != JsNoError) {
