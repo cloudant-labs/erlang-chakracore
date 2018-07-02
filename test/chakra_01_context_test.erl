@@ -9,10 +9,14 @@ create_test() ->
     ?assert(is_reference(element(2, Resp))).
 
 
-badarg_test() ->
-    ?assertError(badarg, chakra:create_context(foo)),
-    ?assertError(badarg, chakra:create_context(1)),
-    ?assertError(badarg, chakra:create_context(<<"stuff">>)).
+memory_usage_test() ->
+    {ok, Ctx} = chakra:create_context(),
+    {ok, Size1} = chakra:memory_usage(Ctx),
+    ?assert(is_integer(Size1) andalso Size1 >= 0),
+    Script = <<"var a = []; for(i = 0; i < 100000; i++) {a.push(i);};">>,
+    ?assertMatch({ok, _}, chakra:run(Ctx, Script)),
+    {ok, Size2} = chakra:memory_usage(Ctx),
+    ?assert(is_integer(Size2) andalso Size2 >= Size1).
 
 
 idle_test() ->
@@ -40,6 +44,9 @@ opt_test() ->
 
 
 bad_opt_test() ->
+    ?assertError(badarg, chakra:create_context(foo)),
+    ?assertError(badarg, chakra:create_context(1)),
+    ?assertError(badarg, chakra:create_context(<<"stuff">>)),
     ?assertError(badarg, chakra:create_context([{}])),
     ?assertError(badarg, chakra:create_context([{a, b, c}])),
     ?assertError(badarg, chakra:create_context([{foo, 0}])),

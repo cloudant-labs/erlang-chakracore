@@ -10,6 +10,7 @@
     run/2,
     call/3,
 
+    memory_usage/1,
     gc/1,
     idle/1,
 
@@ -46,6 +47,10 @@ run(Ctx, Script) ->
 
 call(Ctx, Name, Args) when is_list(Args) ->
     nif_call(Ctx, Name, Args).
+
+
+memory_usage(Ctx) ->
+    nif_memory_usage(Ctx).
 
 
 gc(Ctx) ->
@@ -89,6 +94,10 @@ nif_run(_Ctx, _Script) ->
 
 
 nif_call(_Ctx, _Name, _Args) ->
+    erlang:nif_error(chakra_nif_not_loaded).
+
+
+nif_memory_usage(_Ctx) ->
     erlang:nif_error(chakra_nif_not_loaded).
 
 

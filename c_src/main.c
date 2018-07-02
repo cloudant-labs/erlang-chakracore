@@ -466,6 +466,46 @@ done:
 
 
 static ERL_NIF_TERM
+nif_memory_usage(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    size_t memory_usage;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+    conv.convert_exception = false;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    // Memory usage can be retrieved from any thread
+
+    err = JsGetRuntimeMemoryUsage(ctx->runtime, &memory_usage);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    ret = t2(env, atom_ok, enif_make_uint64(env, memory_usage));
+
+done:
+    if(err != JsNoError) {
+        ret = js2erl_error(&conv, err);
+    }
+
+    return ret;
+}
+
+
+static ERL_NIF_TERM
 nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
@@ -707,10 +747,8 @@ static ErlNifFunc funcs[] =
     {"nif_enable", 1, nif_enable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_disable", 1, nif_disable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 
-    // Notice that nif_interrupt is intentionally not a
-    // dirty CPU NIF. This is so that if we have run-away
-    // JS code on all dirty CPU schedulers we can still
-    // use the main interpreter schedulers to interrupt them.
+    // These NIFs are intentionalyl not dirty CPU scheduled jobs
+    {"nif_memory_usage", 1, nif_memory_usage, 0},
     {"nif_interrupt", 1, nif_interrupt, 0},
 };
 
