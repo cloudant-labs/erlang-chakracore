@@ -260,7 +260,6 @@ nif_create_runtime(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 }
 
 
-
 static ERL_NIF_TERM
 nif_memory_usage(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
