@@ -8,12 +8,9 @@ ToDo
 ---
 
 * Add parseable scripts?
-* Add script names
 * Add "dot.ed.name" syntax to chakra:call
-* Add function resources so we can return a function that can be invoked
 * Add erlang.send? Or some other callback communication?
-* Raise errors and return unwrapped?
-
+* Add script names
 
 OS X Build Notes
 ---
