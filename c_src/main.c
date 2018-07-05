@@ -19,14 +19,20 @@
 #undef ATOM_MAP
 
 
+ErlNifResourceType* ErlChakraRtRes;
 ErlNifResourceType* ErlChakraCtxRes;
 
 typedef struct {
     ErlNifPid pid;
     JsRuntimeHandle runtime;
+    bool allow_script_interrupt;
+} ErlChakraRt;
+
+
+typedef struct {
+    ErlChakraRt* rt;
     JsContextRef context;
     JsSourceContext source_ctx;
-    bool allow_script_interrupt;
 } ErlChakraCtx;
 
 
@@ -48,7 +54,8 @@ ERL_NIF_TERM erl2js_prop_id(
 
 ERL_NIF_TERM js2erl(ErlChakraConv* conv, JsValueRef obj);
 ERL_NIF_TERM js2erl_error(ErlChakraConv* conv, JsErrorCode err);
-ERL_NIF_TERM js2erl_error_code(ErlChakraConv* conv, JsErrorCode err);
+ERL_NIF_TERM js2erl_error_code(JsErrorCode err);
+
 
 ERL_NIF_TERM
 t2(ErlNifEnv* env, ERL_NIF_TERM a, ERL_NIF_TERM b)
@@ -67,12 +74,12 @@ init_conv(ErlChakraConv* conv, ErlNifEnv* env)
 
 
 bool
-check_pid(ErlNifEnv* env, ErlChakraCtx* ctx)
+check_pid(ErlNifEnv* env, ErlChakraRt* rt)
 {
     ErlNifPid pid;
     enif_self(env, &pid);
 
-    if(enif_compare(pid.pid, ctx->pid.pid) == 0) {
+    if(enif_compare(pid.pid, rt->pid.pid) == 0) {
         return true;
     }
 
@@ -81,11 +88,24 @@ check_pid(ErlNifEnv* env, ErlChakraCtx* ctx)
 
 
 void
+erl_chakra_rt_dtor(ErlNifEnv* env, void* obj)
+{
+    ErlChakraRt* rt = (ErlChakraRt*) obj;
+
+    if(rt->runtime == JS_INVALID_RUNTIME_HANDLE) {
+        return;
+    }
+
+    JsDisposeRuntime(rt->runtime);
+}
+
+
+void
 erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
 {
     ErlChakraCtx* ctx = (ErlChakraCtx*) obj;
 
-    if(ctx->runtime == JS_INVALID_RUNTIME_HANDLE) {
+    if(ctx->rt == NULL) {
         return;
     }
 
@@ -93,7 +113,7 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
         JsRelease(ctx->context, NULL);
     }
 
-    JsDisposeRuntime(ctx->runtime);
+    enif_release_resource(ctx->rt);
 
     return;
 }
@@ -112,6 +132,18 @@ static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
 {
     init_atoms(env);
+
+    ErlChakraRtRes = enif_open_resource_type(
+            env,
+            NULL,
+            "erl_chakra_runtime",
+            erl_chakra_rt_dtor,
+            ERL_NIF_RT_CREATE,
+            NULL
+        );
+    if(ErlChakraRtRes == NULL) {
+        return 1;
+    }
 
     ErlChakraCtxRes = enif_open_resource_type(
             env,
@@ -137,9 +169,9 @@ unload(ErlNifEnv* env, void* priv)
 
 
 static ERL_NIF_TERM
-nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+nif_create_runtime(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    ErlChakraCtx* ctx = NULL;
+    ErlChakraRt* rt = NULL;
     ErlChakraConv conv;
     const ERL_NIF_TERM* tuple;
     ERL_NIF_TERM opt;
@@ -197,31 +229,219 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         }
     }
 
-    ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
-    ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
-    ctx->context = JS_INVALID_REFERENCE;
+    rt = enif_alloc_resource(ErlChakraRtRes, sizeof(ErlChakraRt));
+    rt->runtime = JS_INVALID_RUNTIME_HANDLE;
 
     if((attrs & JsRuntimeAttributeAllowScriptInterrupt) == 0) {
-        ctx->allow_script_interrupt = false;
+        rt->allow_script_interrupt = false;
     } else {
-        ctx->allow_script_interrupt = true;
+        rt->allow_script_interrupt = true;
     }
 
-    err = JsCreateRuntime(attrs, NULL, &(ctx->runtime));
+    err = JsCreateRuntime(attrs, NULL, &(rt->runtime));
     if(err != JsNoError) {
-        ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
-        enif_release_resource(ctx);
+        rt->runtime = JS_INVALID_RUNTIME_HANDLE;
+        enif_release_resource(rt);
         return js2erl_error(&conv, err);
     }
 
-    err = JsSetRuntimeMemoryLimit(ctx->runtime, memory_limit);
+    err = JsSetRuntimeMemoryLimit(rt->runtime, memory_limit);
     if(err != JsNoError) {
-        enif_release_resource(ctx);
+        enif_release_resource(rt);
         return js2erl_error(&conv, err);
     }
 
-    err = JsCreateContext(ctx->runtime, &(ctx->context));
+    enif_self(env, &(rt->pid));
+    ret = enif_make_resource(env, rt);
+    enif_release_resource(rt);
+
+    return enif_make_tuple2(env, ATOM_ok, ret);
+
+}
+
+
+
+static ERL_NIF_TERM
+nif_memory_usage(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraRt* rt;
+    size_t memory_usage;
+    JsErrorCode err;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    rt = (ErlChakraRt*) res_handle;
+
+    // Memory usage can be retrieved from any thread
+
+    err = JsGetRuntimeMemoryUsage(rt->runtime, &memory_usage);
     if(err != JsNoError) {
+        return t2(env, ATOM_error, js2erl_error_code(err));
+    }
+
+    return t2(env, ATOM_ok, enif_make_uint64(env, memory_usage));
+}
+
+
+static ERL_NIF_TERM
+nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraRt* rt;
+    JsErrorCode err;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    rt = (ErlChakraRt*) res_handle;
+
+    if(!check_pid(env, rt)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsCollectGarbage(rt->runtime);
+    if(err != JsNoError) {
+        return t2(env, ATOM_error, js2erl_error_code(err));
+    }
+
+    return ATOM_ok;
+}
+
+
+static ERL_NIF_TERM
+nif_enable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraRt* rt;
+    JsErrorCode err;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    rt = (ErlChakraRt*) res_handle;
+
+    if(!check_pid(env, rt)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsEnableRuntimeExecution(rt->runtime);
+    if(err != JsNoError) {
+        return t2(env, ATOM_error, js2erl_error_code(err));
+    }
+
+    return ATOM_ok;
+}
+
+
+static ERL_NIF_TERM
+nif_disable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraRt* rt;
+    JsErrorCode err;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    rt = (ErlChakraRt*) res_handle;
+
+    if(!check_pid(env, rt)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsDisableRuntimeExecution(rt->runtime);
+    if(err != JsNoError) {
+        return t2(env, ATOM_error, js2erl_error_code(err));
+    }
+
+    return ATOM_ok;
+}
+
+
+static ERL_NIF_TERM
+nif_interrupt(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraRt* rt;
+    JsErrorCode err;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    rt = (ErlChakraRt*) res_handle;
+
+    // No check pid as interrupts can come from different
+    // threads and Chakra guarantees that this is kosher.
+
+    // JSRT behaves kinda funny returning no_current_context
+    // if the Runtime was created without AllowScriptInterrupt
+    // so we have to check our stored flag.
+    if(!rt->allow_script_interrupt) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsDisableRuntimeExecution(rt->runtime);
+    if(err != JsNoError) {
+        return t2(env, ATOM_error, js2erl_error_code(err));
+    }
+
+    return ATOM_ok;
+}
+
+
+static ERL_NIF_TERM
+nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraRt* rt = NULL;
+    ErlChakraCtx* ctx = NULL;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+    conv.convert_exception = false;
+
+    if(argc != 1) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    rt = (ErlChakraRt*) res_handle;
+
+    ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
+    ctx->rt = rt;
+    ctx->context = JS_INVALID_REFERENCE;
+
+    enif_keep_resource(ctx->rt);
+
+    err = JsCreateContext(ctx->rt->runtime, &(ctx->context));
+    if(err != JsNoError) {
+        ctx->context = JS_INVALID_REFERENCE;
         enif_release_resource(ctx);
         return js2erl_error(&conv, err);
     }
@@ -231,9 +451,6 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         enif_release_resource(ctx);
         return js2erl_error(&conv, err);
     }
-
-    enif_self(env, &(ctx->pid));
-    ctx->source_ctx = 0;
 
     ret = enif_make_resource(env, ctx);
     enif_release_resource(ctx);
@@ -269,7 +486,7 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!check_pid(env, ctx)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
@@ -354,7 +571,7 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!check_pid(env, ctx)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
@@ -439,92 +656,6 @@ done:
 
 
 static ERL_NIF_TERM
-nif_memory_usage(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{
-    void* res_handle;
-    ErlChakraCtx* ctx;
-    ErlChakraConv conv;
-    ERL_NIF_TERM ret;
-    size_t memory_usage;
-    JsErrorCode err;
-
-    init_conv(&conv, env);
-    conv.convert_exception = false;
-
-    if(argc != 1) {
-        return enif_make_badarg(env);
-    }
-
-    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    ctx = (ErlChakraCtx*) res_handle;
-
-    // Memory usage can be retrieved from any thread
-
-    err = JsGetRuntimeMemoryUsage(ctx->runtime, &memory_usage);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    ret = t2(env, ATOM_ok, enif_make_uint64(env, memory_usage));
-
-done:
-    if(err != JsNoError) {
-        ret = js2erl_error(&conv, err);
-    }
-
-    return ret;
-}
-
-
-static ERL_NIF_TERM
-nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{
-    void* res_handle;
-    ErlChakraCtx* ctx;
-    ErlChakraConv conv;
-    ERL_NIF_TERM ret;
-    JsErrorCode err;
-
-    init_conv(&conv, env);
-
-    if(argc != 1) {
-        return enif_make_badarg(env);
-    }
-
-    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    ctx = (ErlChakraCtx*) res_handle;
-
-    if(!check_pid(env, ctx)) {
-        return enif_make_badarg(env);
-    }
-
-    err = JsSetCurrentContext(ctx->context);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    err = JsCollectGarbage(ctx->runtime);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    ret = ATOM_ok;
-
-done:
-    if(err != JsNoError) {
-        ret = js2erl_error(&conv, err);
-    }
-
-    JsSetCurrentContext(JS_INVALID_REFERENCE);
-    return ret;
-}
-
-
-static ERL_NIF_TERM
 nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
@@ -545,7 +676,7 @@ nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!check_pid(env, ctx)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
@@ -571,158 +702,20 @@ done:
 }
 
 
-static ERL_NIF_TERM
-nif_enable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{
-    void* res_handle;
-    ErlChakraCtx* ctx;
-    ErlChakraConv conv;
-    ERL_NIF_TERM ret;
-    JsErrorCode err;
-
-    init_conv(&conv, env);
-
-    if(argc != 1) {
-        return enif_make_badarg(env);
-    }
-
-    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    ctx = (ErlChakraCtx*) res_handle;
-
-    if(!check_pid(env, ctx)) {
-        return enif_make_badarg(env);
-    }
-
-    err = JsSetCurrentContext(ctx->context);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    err = JsEnableRuntimeExecution(ctx->runtime);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    ret = ATOM_ok;
-
-done:
-    if(err != JsNoError) {
-        ret = js2erl_error(&conv, err);
-    }
-
-    JsSetCurrentContext(JS_INVALID_REFERENCE);
-    return ret;
-}
-
-
-static ERL_NIF_TERM
-nif_disable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{
-    void* res_handle;
-    ErlChakraCtx* ctx;
-    ErlChakraConv conv;
-    ERL_NIF_TERM ret;
-    JsErrorCode err;
-
-    init_conv(&conv, env);
-
-    if(argc != 1) {
-        return enif_make_badarg(env);
-    }
-
-    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    ctx = (ErlChakraCtx*) res_handle;
-
-    if(!check_pid(env, ctx)) {
-        return enif_make_badarg(env);
-    }
-
-    err = JsSetCurrentContext(ctx->context);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    err = JsDisableRuntimeExecution(ctx->runtime);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    ret = ATOM_ok;
-
-done:
-    if(err != JsNoError) {
-        ret = js2erl_error(&conv, err);
-    }
-
-    JsSetCurrentContext(JS_INVALID_REFERENCE);
-    return ret;
-}
-
-
-static ERL_NIF_TERM
-nif_interrupt(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{
-    void* res_handle;
-    ErlChakraCtx* ctx;
-    ErlChakraConv conv;
-    ERL_NIF_TERM ret;
-    JsErrorCode err;
-
-    init_conv(&conv, env);
-
-    if(argc != 1) {
-        return enif_make_badarg(env);
-    }
-
-    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    ctx = (ErlChakraCtx*) res_handle;
-
-    // No check pid as interrupts can come from different
-    // threads and Chakra guarantees that this is kosher.
-
-    // JSRT behaves kinda funny returning no_current_context
-    // if the Runtime was created without AllowScriptInterrupt
-    // so we have to check our stored flag.
-    if(!ctx->allow_script_interrupt) {
-        return enif_make_badarg(env);
-    }
-
-    err = JsDisableRuntimeExecution(ctx->runtime);
-    if(err != JsNoError) {
-        goto done;
-    }
-
-    ret = ATOM_ok;
-
-done:
-    if(err != JsNoError) {
-        ret = js2erl_error(&conv, err);
-    }
-
-    JsSetCurrentContext(JS_INVALID_REFERENCE);
-    return ret;
-}
-
-
 static ErlNifFunc funcs[] =
 {
+    {"nif_create_runtime", 1, nif_create_runtime, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_memory_usage", 1, nif_memory_usage, 0},
+    {"nif_gc", 1, nif_gc, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_enable", 1, nif_enable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_disable", 1, nif_disable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_interrupt", 1, nif_interrupt, 0},
+
     {"nif_create_context", 1, nif_create_context, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_run", 2, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_call", 3, nif_call, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_gc", 1, nif_gc, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_enable", 1, nif_enable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_disable", 1, nif_disable, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND}
 
-    // These NIFs are intentionalyl not dirty CPU scheduled jobs
-    {"nif_memory_usage", 1, nif_memory_usage, 0},
-    {"nif_interrupt", 1, nif_interrupt, 0},
 };
 
 ERL_NIF_INIT(chakra, funcs, &load, NULL, NULL, &unload);
@@ -1356,7 +1349,7 @@ js2erl_error(ErlChakraConv* conv, JsErrorCode err)
 
     if(!conv->convert_exception) {
         conv->failed = true;
-        return t2(conv->env, ATOM_error, js2erl_error_code(conv, err));
+        return t2(conv->env, ATOM_error, js2erl_error_code(err));
     }
 
     // Prevent infinite recursion in case we generate
@@ -1379,7 +1372,7 @@ js2erl_error(ErlChakraConv* conv, JsErrorCode err)
             ret = t2(conv->env, ATOM_exception, ret);
         }
     } else {
-        ret = t2(conv->env, ATOM_error, js2erl_error_code(conv, err));
+        ret = t2(conv->env, ATOM_error, js2erl_error_code(err));
     }
 
     conv->failed = true;
@@ -1387,68 +1380,11 @@ js2erl_error(ErlChakraConv* conv, JsErrorCode err)
 }
 
 
-#define RET_ERROR(Name, Value)                      \
-do {                                                \
-    if(err == Name) {                               \
-        return enif_make_atom(conv->env, Value);    \
-    }                                               \
-} while(0)
-
-
+#define ERROR_MAP(ERROR, NAME) if(err == ERROR) return ATOM_##NAME
 ERL_NIF_TERM
-js2erl_error_code(ErlChakraConv* conv, JsErrorCode err)
+js2erl_error_code(JsErrorCode err)
 {
-    RET_ERROR(JsNoError, "no_error");
-    RET_ERROR(JsErrorCategoryUsage, "category_usage");
-    RET_ERROR(JsErrorInvalidArgument, "invalid_argument");
-    RET_ERROR(JsErrorNullArgument, "null_argument");
-    RET_ERROR(JsErrorNoCurrentContext, "no_current_context");
-    RET_ERROR(JsErrorInExceptionState, "in_exception_state");
-    RET_ERROR(JsErrorNotImplemented, "not_implemented");
-    RET_ERROR(JsErrorWrongThread, "wrong_thread");
-    RET_ERROR(JsErrorRuntimeInUse, "runtime_in_use");
-    RET_ERROR(JsErrorBadSerializedScript, "bad_serialized_script");
-    RET_ERROR(JsErrorInDisabledState, "in_disabled_state");
-    RET_ERROR(JsErrorCannotDisableExecution, "cannot_disable_execution");
-    RET_ERROR(JsErrorHeapEnumInProgress, "heap_enum_in_progress");
-    RET_ERROR(JsErrorArgumentNotObject, "argument_not_object");
-    RET_ERROR(JsErrorInProfileCallback, "in_profile_callback");
-    RET_ERROR(JsErrorInThreadServiceCallback, "in_thread_service_callback");
-    RET_ERROR(JsErrorCannotSerializeDebugScript, "cannot_serialize_debug_script");
-    RET_ERROR(JsErrorAlreadyDebuggingContext, "already_debugging_context");
-    RET_ERROR(JsErrorAlreadyProfilingContext, "already_profiling_context");
-    RET_ERROR(JsErrorIdleNotEnabled, "idle_not_enabled");
-    RET_ERROR(JsCannotSetProjectionEnqueueCallback, "cannot_set_projection_enqueue_callback");
-    RET_ERROR(JsErrorCannotStartProjection, "cannot_start_projection");
-    RET_ERROR(JsErrorInObjectBeforeCollectCallback, "in_object_before_collect_callback");
-    RET_ERROR(JsErrorObjectNotInspectable, "object_not_inspectable");
-    RET_ERROR(JsErrorPropertyNotSymbol, "property_not_symbol");
-    RET_ERROR(JsErrorPropertyNotString, "property_not_string");
-    RET_ERROR(JsErrorInvalidContext, "invalid_context");
-    RET_ERROR(JsInvalidModuleHostInfoKind, "invalid_module_host_info_kind");
-    RET_ERROR(JsErrorModuleParsed, "module_parsed");
-    //RET_ERROR(JsNoWeakRefRequired, "no_weak_ref_required");
-    //RET_ERROR(JsErrorPromisePending, "promise_pending");
-    RET_ERROR(JsErrorCategoryEngine, "category_engine");
-    RET_ERROR(JsErrorOutOfMemory, "out_of_memory");
-    RET_ERROR(JsErrorBadFPUState, "bad_fpu_state");
-    RET_ERROR(JsErrorCategoryScript, "category_script");
-    RET_ERROR(JsErrorScriptException, "script_exception");
-    RET_ERROR(JsErrorScriptCompile, "script_compile");
-    RET_ERROR(JsErrorScriptTerminated, "script_terminated");
-    RET_ERROR(JsErrorScriptEvalDisabled, "script_eval_disabled");
-    RET_ERROR(JsErrorCategoryFatal, "category_fatal");
-    RET_ERROR(JsErrorFatal, "fatal");
-    RET_ERROR(JsErrorWrongRuntime, "wrong_runtime");
-    RET_ERROR(JsErrorCategoryDiagError, "category_diag_error");
-    RET_ERROR(JsErrorDiagAlreadyInDebugMode, "diag_already_in_debug_mode");
-    RET_ERROR(JsErrorDiagNotInDebugMode, "diag_not_in_debug_mode");
-    RET_ERROR(JsErrorDiagNotAtBreak, "diag_not_at_break");
-    RET_ERROR(JsErrorDiagInvalidHandle, "diag_invalid_handle");
-    RET_ERROR(JsErrorDiagObjectNotFound, "diag_object_not_found");
-    RET_ERROR(JsErrorDiagUnableToPerformAction, "diag_unable_to_perform_action");
-
+    #include "errors.h"
     return ATOM_unknown;
 }
-
-#undef RET_ERROR
+#undef ERROR_MAP

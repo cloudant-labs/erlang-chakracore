@@ -1,4 +1,4 @@
--module(chakra_04_conversion_test).
+-module(chakra_03_conversion_test).
 
 -include_lib("eunit/include/eunit.hrl").
 
