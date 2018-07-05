@@ -45,17 +45,21 @@ gc_script_test() ->
     {binary, Before} = process_info(self(), binary),
 
     {ok, Ctx} = chakra:create_context(),
-    Val = rand:uniform(5),
-    run_script(Ctx, Val),
+    {binary, With} = run_script(Ctx, rand:uniform(5)),
+
+    ?assertNotEqual(Before, With),
 
     erlang:garbage_collect(self()),
     {binary, After} = process_info(self(), binary),
     ?assertEqual(Before, After),
 
-    ?assertEqual({ok, Val * 3}, chakra:call(Ctx, mult, [3])).
+    ?assertMatch({ok, _}, chakra:call(Ctx, b, [])).
 
 
 run_script(Ctx, Val) ->
-    ScriptStr = io_lib:format("function mult(a) {return ~b * a;};", [Val]),
-    Script = iolist_to_binary(ScriptStr),
-    ?assertMatch({ok, _}, chakra:run(Ctx, Script)).
+    Padding = lists:duplicate(Val, " "),
+    ScriptStr = "function a() {return true;}; function b() {return a.toString()};",
+    Script = iolist_to_binary(Padding ++ ScriptStr),
+    ?assertMatch({ok, _}, chakra:run(Ctx, Script)),
+    process_info(self(), binary).
+
