@@ -14,26 +14,10 @@
 #define ERL_CHAKRA_ERROR 1
 
 
-ERL_NIF_TERM atom_ok;
-ERL_NIF_TERM atom_error;
-ERL_NIF_TERM atom_exception;
-ERL_NIF_TERM atom_false;
-ERL_NIF_TERM atom_invalid_term;
-ERL_NIF_TERM atom_null;
-ERL_NIF_TERM atom_out_of_memory;
-ERL_NIF_TERM atom_true;
-ERL_NIF_TERM atom_undefined;
-ERL_NIF_TERM atom_unknown;
+#define ATOM_MAP(NAME) ERL_NIF_TERM ATOM_##NAME
+#include "atoms.h"
+#undef ATOM_MAP
 
-// Runtime Attribute atoms
-ERL_NIF_TERM atom_memory_limit;
-ERL_NIF_TERM atom_disable_background_work;
-ERL_NIF_TERM atom_allow_script_interrupt;
-ERL_NIF_TERM atom_enable_idle_processing;
-ERL_NIF_TERM atom_disable_native_code_generation;
-ERL_NIF_TERM atom_disable_eval;
-ERL_NIF_TERM atom_enable_experimental_features;
-// Ignoring dispatch set exception
 
 ErlNifResourceType* ErlChakraCtxRes;
 
@@ -73,13 +57,6 @@ t2(ErlNifEnv* env, ERL_NIF_TERM a, ERL_NIF_TERM b)
 }
 
 
-ERL_NIF_TERM
-mkatom(ErlNifEnv* env, const char* name)
-{
-    return enif_make_atom(env, name);
-}
-
-
 void
 init_conv(ErlChakraConv* conv, ErlNifEnv* env)
 {
@@ -116,33 +93,25 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
         JsRelease(ctx->context, NULL);
     }
 
+    JsDisposeRuntime(ctx->runtime);
+
     return;
 }
+
+
+#define ATOM_MAP(NAME) ATOM_##NAME = enif_make_atom(env, #NAME)
+static void
+init_atoms(ErlNifEnv* env)
+{
+    #include "atoms.h"
+}
+#undef ATOM_MAP
 
 
 static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
 {
-    atom_ok = mkatom(env, "ok");
-    atom_error = mkatom(env, "error");
-    atom_exception = mkatom(env, "exception");
-    atom_false = mkatom(env, "false");
-    atom_invalid_term = mkatom(env, "invalid_term");
-    atom_null = mkatom(env, "null");
-    atom_out_of_memory = mkatom(env, "out_of_memory");
-    atom_true = mkatom(env, "true");
-    atom_undefined = mkatom(env, "undefined");
-    atom_unknown = mkatom(env, "unknown");
-
-    atom_memory_limit = mkatom(env, "memory_limit");
-    atom_disable_background_work = mkatom(env, "disable_background_work");
-    atom_allow_script_interrupt = mkatom(env, "allow_script_interrupt");
-    atom_enable_idle_processing = mkatom(env, "enable_idle_processing");
-    atom_disable_native_code_generation =
-            mkatom(env, "disable_native_code_generation");
-    atom_disable_eval = mkatom(env, "disable_eval");
-    atom_enable_experimental_features =
-            mkatom(env, "enable_experimental_features");
+    init_atoms(env);
 
     ErlChakraCtxRes = enif_open_resource_type(
             env,
@@ -201,7 +170,7 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
             if(arity != 2) {
                 return enif_make_badarg(env);
             }
-            if(enif_is_identical(tuple[0], atom_memory_limit)) {
+            if(enif_is_identical(tuple[0], ATOM_memory_limit)) {
                 if(!enif_get_int(env, tuple[1], &memory_limit)) {
                     return enif_make_badarg(env);
                 }
@@ -211,17 +180,17 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
             } else {
                 return enif_make_badarg(env);
             }
-        } else if(enif_is_identical(opt, atom_disable_background_work)) {
+        } else if(enif_is_identical(opt, ATOM_disable_background_work)) {
             attrs |= JsRuntimeAttributeDisableBackgroundWork;
-        } else if(enif_is_identical(opt, atom_allow_script_interrupt)) {
+        } else if(enif_is_identical(opt, ATOM_allow_script_interrupt)) {
             attrs |= JsRuntimeAttributeAllowScriptInterrupt;
-        } else if(enif_is_identical(opt, atom_enable_idle_processing)) {
+        } else if(enif_is_identical(opt, ATOM_enable_idle_processing)) {
             attrs |= JsRuntimeAttributeEnableIdleProcessing;
-        } else if(enif_is_identical(opt, atom_disable_native_code_generation)) {
+        } else if(enif_is_identical(opt, ATOM_disable_native_code_generation)) {
             attrs |= JsRuntimeAttributeDisableNativeCodeGeneration;
-        } else if(enif_is_identical(opt, atom_disable_eval)) {
+        } else if(enif_is_identical(opt, ATOM_disable_eval)) {
             attrs |= JsRuntimeAttributeDisableEval;
-        } else if(enif_is_identical(opt, atom_enable_experimental_features)) {
+        } else if(enif_is_identical(opt, ATOM_enable_experimental_features)) {
             attrs |= JsRuntimeAttributeEnableExperimentalFeatures;
         } else {
             return enif_make_badarg(env);
@@ -230,6 +199,7 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
     ctx->runtime = JS_INVALID_RUNTIME_HANDLE;
+    ctx->context = JS_INVALID_REFERENCE;
 
     if((attrs & JsRuntimeAttributeAllowScriptInterrupt) == 0) {
         ctx->allow_script_interrupt = false;
@@ -268,7 +238,7 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ret = enif_make_resource(env, ctx);
     enif_release_resource(ctx);
 
-    return enif_make_tuple2(env, atom_ok, ret);
+    return enif_make_tuple2(env, ATOM_ok, ret);
 }
 
 
@@ -336,7 +306,7 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     ret = js2erl(&conv, result);
     if(!conv.failed) {
-        ret = t2(env, atom_ok, ret);
+        ret = t2(env, ATOM_ok, ret);
     }
 
 
@@ -394,7 +364,7 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     err = erl2js_prop_id(&conv, argv[1], &fname);
-    if(err != atom_ok) {
+    if(err != ATOM_ok) {
         return js2erl_error(&conv, err);
     }
 
@@ -419,27 +389,27 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
 
     if(is_undefined) {
-        return t2(env, atom_error, mkatom(env, "undefined_function"));
+        return t2(env, ATOM_error, ATOM_undefined_function);
     }
 
     list = argv[2];
     if(!enif_is_list(env, list)) {
-        return t2(env, atom_error, mkatom(env, "invalid_argument_list"));
+        return t2(env, ATOM_error, ATOM_invalid_argument_list);
     }
 
     if(!enif_get_list_length(env, list, (unsigned int*) &length)) {
-        return t2(env, atom_error, mkatom(env, "invalid_argument_list"));
+        return t2(env, ATOM_error, ATOM_invalid_argument_list);
     }
 
     args = enif_alloc((length + 1) * sizeof(JsValueRef));
     args[0] = global_obj;
     for(i = 1; i <= length; i++) {
         if(!enif_get_list_cell(env, list, &cell, &list)) {
-            return t2(env, atom_error, mkatom(env, "invalid_argument_list"));
+            return t2(env, ATOM_error, ATOM_invalid_argument_list);
         }
 
         ret = erl2js(&conv, cell, &(args[i]));
-        if(ret != atom_ok) {
+        if(ret != ATOM_ok) {
             goto done;
         }
     }
@@ -451,7 +421,7 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     ret = js2erl(&conv, result);
     if(!conv.failed) {
-        ret = t2(env, atom_ok, ret);
+        ret = t2(env, ATOM_ok, ret);
     }
 
 done:
@@ -497,7 +467,7 @@ nif_memory_usage(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    ret = t2(env, atom_ok, enif_make_uint64(env, memory_usage));
+    ret = t2(env, ATOM_ok, enif_make_uint64(env, memory_usage));
 
 done:
     if(err != JsNoError) {
@@ -542,7 +512,7 @@ nif_gc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    ret = atom_ok;
+    ret = ATOM_ok;
 
 done:
     if(err != JsNoError) {
@@ -589,7 +559,7 @@ nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    ret = t2(env, atom_ok, enif_make_uint(env, ticks));
+    ret = t2(env, ATOM_ok, enif_make_uint(env, ticks));
 
 done:
     if(err != JsNoError) {
@@ -635,7 +605,7 @@ nif_enable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    ret = atom_ok;
+    ret = ATOM_ok;
 
 done:
     if(err != JsNoError) {
@@ -681,7 +651,7 @@ nif_disable(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    ret = atom_ok;
+    ret = ATOM_ok;
 
 done:
     if(err != JsNoError) {
@@ -728,7 +698,7 @@ nif_interrupt(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    ret = atom_ok;
+    ret = ATOM_ok;
 
 done:
     if(err != JsNoError) {
@@ -765,42 +735,42 @@ erl2js_atom(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
     size_t size;
     JsErrorCode err;
 
-    if(enif_is_identical(obj, atom_undefined)) {
+    if(enif_is_identical(obj, ATOM_undefined)) {
         err = JsGetUndefinedValue(out);
         if(err != JsNoError) {
             return js2erl_error(conv, err);
         }
-        return atom_ok;
+        return ATOM_ok;
     }
 
-    if(enif_is_identical(obj, atom_null)) {
+    if(enif_is_identical(obj, ATOM_null)) {
         err = JsGetNullValue(out);
         if(err != JsNoError) {
             return js2erl_error(conv, err);
         }
-        return atom_ok;
+        return ATOM_ok;
     }
 
-    if(enif_is_identical(obj, atom_true)) {
+    if(enif_is_identical(obj, ATOM_true)) {
         err = JsGetTrueValue(out);
         if(err != JsNoError) {
             return js2erl_error(conv, err);
         }
-        return atom_ok;
+        return ATOM_ok;
     }
 
-    if(enif_is_identical(obj, atom_false)) {
+    if(enif_is_identical(obj, ATOM_false)) {
         err = JsGetFalseValue(out);
         if(err != JsNoError) {
             return js2erl_error(conv, err);
         }
-        return atom_ok;
+        return ATOM_ok;
     }
 
     size = enif_get_atom(conv->env, obj, buf,
             ERL_CHAKRA_MAX_ATOM_LENGTH, ERL_NIF_LATIN1);
     if(size < 1) {
-        return t2(conv->env, mkatom(conv->env, "invalid_atom"), obj);
+        return t2(conv->env, ATOM_invalid_atom, obj);
     }
 
     err = JsCreateString(buf, size - 1, out);
@@ -808,7 +778,7 @@ erl2js_atom(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
         return js2erl_error(conv, err);
     }
 
-    return atom_ok;
+    return ATOM_ok;
 }
 
 
@@ -819,7 +789,7 @@ erl2js_binary(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
     JsErrorCode err;
 
     if(!enif_inspect_binary(conv->env, obj, &bin)) {
-        return t2(conv->env, mkatom(conv->env, "invalid_binary"), obj);
+        return t2(conv->env, ATOM_invalid_binary, obj);
     }
 
     err = JsCreateString((char*) bin.data, bin.size, out);
@@ -827,7 +797,7 @@ erl2js_binary(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
         return js2erl_error(conv, err);
     }
 
-    return atom_ok;
+    return ATOM_ok;
 }
 
 
@@ -844,7 +814,7 @@ erl2js_number(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
             return js2erl_error(conv, err);
         }
 
-        return atom_ok;
+        return ATOM_ok;
     }
 
     if(enif_get_double(conv->env, obj, &dval)) {
@@ -853,10 +823,10 @@ erl2js_number(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
             return js2erl_error(conv, err);
         }
 
-        return atom_ok;
+        return ATOM_ok;
     }
 
-    return t2(conv->env, mkatom(conv->env, "invalid_number"), obj);
+    return t2(conv->env, ATOM_invalid_number, obj);
 }
 
 
@@ -877,11 +847,11 @@ erl2js_list(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
     JsErrorCode err;
 
     if(!enif_get_list_length(conv->env, obj, &length)) {
-        return t2(conv->env, mkatom(conv->env, "invalid_list"), obj);
+        return t2(conv->env, ATOM_invalid_list, obj);
     }
 
     if(length > (size_t) 2147483647) {
-        return mkatom(conv->env, "invalid_list_length");
+        return ATOM_invalid_list_length;
     }
 
     err = JsCreateArray(length, &array);
@@ -891,18 +861,18 @@ erl2js_list(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
 
     for(i = 0; i < length; i++) {
         if(!enif_get_list_cell(conv->env, obj, &cell, &obj)) {
-            return t2(conv->env, mkatom(conv->env, "invalid_list"), obj);
+            return t2(conv->env, ATOM_invalid_list, obj);
         }
 
         init_conv(&sub_conv, conv->env);
         term = erl2js(&sub_conv, cell, &elem);
-        if(term != atom_ok) {
+        if(term != ATOM_ok) {
             return term;
         }
 
         err = JsIntToNumber(i, &idx);
         if(err != JsNoError) {
-            return mkatom(conv->env, "invalid_index");
+            return ATOM_invalid_index;
         }
 
         err = JsSetIndexedProperty(array, idx, elem);
@@ -912,7 +882,7 @@ erl2js_list(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
     }
 
     *out = array;
-    return atom_ok;
+    return ATOM_ok;
 }
 
 
@@ -928,7 +898,7 @@ erl2js_prop_id(ErlChakraConv* conv, ERL_NIF_TERM obj, JsPropertyIdRef* out)
         size = enif_get_atom(conv->env, obj, buf,
                 ERL_CHAKRA_MAX_ATOM_LENGTH, ERL_NIF_LATIN1);
         if(size < 1) {
-            return t2(conv->env, mkatom(conv->env, "invalid_key"), obj);
+            return t2(conv->env, ATOM_invalid_key, obj);
         }
 
         err = JsCreatePropertyId(buf, size, out);
@@ -936,12 +906,12 @@ erl2js_prop_id(ErlChakraConv* conv, ERL_NIF_TERM obj, JsPropertyIdRef* out)
             return js2erl_error(conv, err);
         }
 
-        return atom_ok;
+        return ATOM_ok;
     }
 
     if(enif_is_binary(conv->env, obj)) {
         if(!enif_inspect_binary(conv->env, obj, &bin)) {
-            return t2(conv->env, mkatom(conv->env, "invalid_key"), obj);
+            return t2(conv->env, ATOM_invalid_key, obj);
         }
 
         err = JsCreatePropertyId((char*) bin.data, bin.size, out);
@@ -949,10 +919,10 @@ erl2js_prop_id(ErlChakraConv* conv, ERL_NIF_TERM obj, JsPropertyIdRef* out)
             return js2erl_error(conv, err);
         }
 
-        return atom_ok;
+        return ATOM_ok;
     }
 
-    return t2(conv->env, mkatom(conv->env, "invalid_key"), obj);
+    return t2(conv->env, ATOM_invalid_key, obj);
 }
 
 
@@ -974,21 +944,21 @@ erl2js_object(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
     JsErrorCode err;
 
     if(!enif_get_tuple(conv->env, obj, &arity, &items)) {
-        return t2(conv->env, mkatom(conv->env, "invalid_term"), obj);
+        return t2(conv->env, ATOM_invalid_term, obj);
     }
 
     if(arity != 1) {
-        return t2(conv->env, mkatom(conv->env, "invalid_term"), obj);
+        return t2(conv->env, ATOM_invalid_term, obj);
     }
 
     props = items[0];
 
     if(!enif_is_list(conv->env, props)) {
-        return t2(conv->env, mkatom(conv->env, "invalid_term"), obj);
+        return t2(conv->env, ATOM_invalid_term, obj);
     }
 
     if(!enif_get_list_length(conv->env, props, (unsigned int*) &length)) {
-        return t2(conv->env, mkatom(conv->env, "invalid_term"), obj);
+        return t2(conv->env, ATOM_invalid_term, obj);
     }
 
     err = JsCreateObject(&ret);
@@ -998,28 +968,28 @@ erl2js_object(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
 
     for(i = 0; i < length; i++) {
         if(!enif_get_list_cell(conv->env, props, &cell, &props)) {
-            return t2(conv->env, mkatom(conv->env, "invalid_props"), props);
+            return t2(conv->env, ATOM_invalid_props, props);
         }
 
         if(!enif_is_tuple(conv->env, cell)) {
-            return t2(conv->env, mkatom(conv->env, "invalid_property"), cell);
+            return t2(conv->env, ATOM_invalid_property, cell);
         }
 
         if(!enif_get_tuple(conv->env, cell, &arity, &items)) {
-            return t2(conv->env, mkatom(conv->env, "invalid_property"), cell);
+            return t2(conv->env, ATOM_invalid_property, cell);
         }
 
         if(arity != 2) {
-            return t2(conv->env, mkatom(conv->env, "invalid_property"), cell);
+            return t2(conv->env, ATOM_invalid_property, cell);
         }
 
         elem = erl2js_prop_id(conv, items[0], &key);
-        if(elem != atom_ok) {
+        if(elem != ATOM_ok) {
             return elem;
         }
 
         elem = erl2js(conv, items[1], &val);
-        if(elem != atom_ok) {
+        if(elem != ATOM_ok) {
             return elem;
         }
 
@@ -1031,7 +1001,7 @@ erl2js_object(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
     }
 
     *out = ret;
-    return atom_ok;
+    return ATOM_ok;
 }
 
 
@@ -1058,7 +1028,7 @@ erl2js(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
         return erl2js_object(conv, obj, out);
     }
 
-    return t2(conv->env, atom_invalid_term, obj);
+    return t2(conv->env, ATOM_invalid_term, obj);
 }
 
 
@@ -1118,9 +1088,9 @@ js2erl_bool(ErlChakraConv* conv, JsValueRef obj)
     }
 
     if(val) {
-        return atom_true;
+        return ATOM_true;
     } else {
-        return atom_false;
+        return ATOM_false;
     }
 }
 
@@ -1179,7 +1149,7 @@ js2erl_object(ErlChakraConv* conv, JsValueRef obj)
     // Kinda hack, but if we hit out of memory then
     // this call fails with out of memory as well...
     if(err == JsErrorScriptException) {
-        return atom_out_of_memory;
+        return ATOM_out_of_memory;
     }
     if(err != JsNoError) {
         return js2erl_error(conv, err);
@@ -1347,9 +1317,9 @@ js2erl(ErlChakraConv* conv, JsValueRef obj)
 
     switch(vt) {
         case JsUndefined:
-            return atom_undefined;
+            return ATOM_undefined;
         case JsNull:
-            return atom_null;
+            return ATOM_null;
         case JsNumber:
             return js2erl_number(conv, obj);
         case JsString:
@@ -1369,8 +1339,7 @@ js2erl(ErlChakraConv* conv, JsValueRef obj)
         case JsDataView:
             return js2erl_any(conv, obj);
         default:
-            return t2(conv->env, atom_error,
-                    mkatom(conv->env, "invalid_value_type"));
+            return t2(conv->env, ATOM_error, ATOM_invalid_value_type);
     }
 }
 
@@ -1387,7 +1356,7 @@ js2erl_error(ErlChakraConv* conv, JsErrorCode err)
 
     if(!conv->convert_exception) {
         conv->failed = true;
-        return t2(conv->env, atom_error, js2erl_error_code(conv, err));
+        return t2(conv->env, ATOM_error, js2erl_error_code(conv, err));
     }
 
     // Prevent infinite recursion in case we generate
@@ -1407,10 +1376,10 @@ js2erl_error(ErlChakraConv* conv, JsErrorCode err)
 
         ret = js2erl(conv, exc);
         if(!conv->failed) {
-            ret = t2(conv->env, atom_exception, ret);
+            ret = t2(conv->env, ATOM_exception, ret);
         }
     } else {
-        ret = t2(conv->env, atom_error, js2erl_error_code(conv, err));
+        ret = t2(conv->env, ATOM_error, js2erl_error_code(conv, err));
     }
 
     conv->failed = true;
@@ -1479,7 +1448,7 @@ js2erl_error_code(ErlChakraConv* conv, JsErrorCode err)
     RET_ERROR(JsErrorDiagObjectNotFound, "diag_object_not_found");
     RET_ERROR(JsErrorDiagUnableToPerformAction, "diag_unable_to_perform_action");
 
-    return atom_unknown;
+    return ATOM_unknown;
 }
 
 #undef RET_ERROR

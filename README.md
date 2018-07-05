@@ -7,6 +7,9 @@ Yep.
 ToDo
 ---
 
+* Add parseable scripts?
+* Add ref counting to contexts
+* Add script names
 * Add "dot.ed.name" syntax to chakra:call
 * Add function resources so we can return a function that can be invoked
 * Add erlang.send? Or some other callback communication?
@@ -16,7 +19,6 @@ Maybe ToDo?
 ---
 
 * Shareable runtimes?
-* Pre-define atoms for JsErrorCode -> ERL_NIF_TERM conversion
 
 OS X Build Notes
 ---
