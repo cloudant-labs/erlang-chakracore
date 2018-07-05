@@ -108,9 +108,12 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
 {
     ErlChakraCtx* ctx = (ErlChakraCtx*) obj;
 
-    if(ctx->runtime != JS_INVALID_RUNTIME_HANDLE) {
-        JsSetCurrentContext(JS_INVALID_REFERENCE);
-        JsDisposeRuntime(ctx->runtime);
+    if(ctx->runtime == JS_INVALID_RUNTIME_HANDLE) {
+        return;
+    }
+
+    if(ctx->context != JS_INVALID_REFERENCE) {
+        JsRelease(ctx->context, NULL);
     }
 
     return;
