@@ -90,7 +90,13 @@ run_serialized(Ctx, SerializedScript) ->
     nif_run_serialized(Ctx, SerializedScript).
 
 
-call(Ctx, Name, Args) when is_list(Args) ->
+call(Ctx, Name, Args) when is_atom(Name) ->
+    call(Ctx, list_to_binary(atom_to_list(Name)), Args);
+
+call(Ctx, Name, Args) when is_binary(Name) ->
+    call(Ctx, binary:split(Name, <<".">>, [global]), Args);
+
+call(Ctx, Name, Args) when is_list(Name), is_list(Args) ->
     nif_call(Ctx, Name, Args).
 
 

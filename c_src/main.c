@@ -63,6 +63,14 @@ ERL_NIF_TERM erl2js_prop_id(
         ERL_NIF_TERM obj,
         JsPropertyIdRef* out
     );
+ERL_NIF_TERM
+erl2js_func(
+        ErlChakraConv* conv,
+        ERL_NIF_TERM prop_names,
+        JsValueRef obj,
+        JsValueRef undefined,
+        JsValueRef* out
+    );
 
 ERL_NIF_TERM js2erl(ErlChakraConv* conv, JsValueRef obj);
 ERL_NIF_TERM js2erl_error(ErlChakraConv* conv, JsErrorCode err);
@@ -808,9 +816,7 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     JsValueRef global_obj;
     JsValueRef func;
     JsValueRef result;
-    JsPropertyIdRef fname;
 
-    bool is_undefined;
     size_t length;
     size_t i;
     JsErrorCode err;
@@ -835,8 +841,8 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return js2erl_error(&conv, err);
     }
 
-    err = erl2js_prop_id(&conv, argv[1], &fname);
-    if(err != ATOM_ok) {
+    err = JsGetGlobalObject(&global_obj);
+    if(err != JsNoError) {
         return js2erl_error(&conv, err);
     }
 
@@ -845,23 +851,9 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return js2erl_error(&conv, err);
     }
 
-    err = JsGetGlobalObject(&global_obj);
-    if(err != JsNoError) {
-        return js2erl_error(&conv, err);
-    }
-
-    err = JsGetProperty(global_obj, fname, &func);
-    if(err != JsNoError) {
-        return js2erl_error(&conv, err);
-    }
-
-    err = JsEquals(func, undefined, &is_undefined);
-    if(err != JsNoError) {
-        return js2erl_error(&conv, err);
-    }
-
-    if(is_undefined) {
-        return t2(env, ATOM_error, ATOM_undefined_function);
+    ret = erl2js_func(&conv, argv[1], global_obj, undefined, &func);
+    if(ret != ATOM_ok) {
+        return ret;
     }
 
     list = argv[2];
@@ -1172,6 +1164,61 @@ erl2js_prop_id(ErlChakraConv* conv, ERL_NIF_TERM obj, JsPropertyIdRef* out)
     }
 
     return t2(conv->env, ATOM_invalid_key, obj);
+}
+
+
+ERL_NIF_TERM
+erl2js_func(
+        ErlChakraConv* conv,
+        ERL_NIF_TERM prop_names,
+        JsValueRef obj,
+        JsValueRef undefined,
+        JsValueRef* out
+    )
+{
+    ERL_NIF_TERM name;
+    ERL_NIF_TERM rest_names;
+    ERL_NIF_TERM ret;
+    JsPropertyIdRef fname;
+    JsErrorCode err;
+    bool is_undefined;
+
+    if(!enif_is_list(conv->env, prop_names)) {
+        return enif_make_badarg(conv->env);
+    }
+
+    if(enif_is_empty_list(conv->env, prop_names)) {
+        return enif_make_badarg(conv->env);
+    }
+
+    if(!enif_get_list_cell(conv->env, prop_names, &name, &rest_names)) {
+        return enif_make_badarg(conv->env);
+    }
+
+    ret = erl2js_prop_id(conv, name, &fname);
+    if(ret != ATOM_ok) {
+        return ret;
+    }
+
+    err = JsGetProperty(obj, fname, out);
+    if(err != JsNoError) {
+        return js2erl_error(conv, err);
+    }
+
+    err = JsEquals(*out, undefined, &is_undefined);
+    if(err != JsNoError) {
+        return js2erl_error(conv, err);
+    }
+
+    if(is_undefined) {
+        return t2(conv->env, ATOM_error, ATOM_undefined_function);
+    }
+
+    if(enif_is_empty_list(conv->env, rest_names)) {
+        return ATOM_ok;
+    }
+
+    return erl2js_func(conv, rest_names, *out, undefined, out);
 }
 
 

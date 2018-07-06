@@ -7,9 +7,8 @@ Yep.
 ToDo
 ---
 
-* Add "dot.ed.name" syntax to chakra:call
-* Add erlang.send? Or some other callback communication?
 * Add script names
+* Add erlang.send? Or some other callback communication?
 
 OS X Build Notes
 ---

@@ -65,6 +65,32 @@ call_multi_arg_test() ->
         ).
 
 
+call_nested_test() ->
+    {ok, Ctx} = chakra:create_context(),
+    Script = <<"var a = {\"b\":{\"c\":function conc(a, b) {return a + b;}}};">>,
+    ?assertMatch({ok, _}, chakra:run(Ctx, Script)),
+    ?assertEqual(
+            {ok, <<"foobaz">>},
+            chakra:call(Ctx, 'a.b.c', [foo, baz])
+        ),
+    ?assertEqual(
+            {ok, <<"foobaz">>},
+            chakra:call(Ctx, [a, b, c], [foo, baz])
+        ),
+    ?assertEqual(
+            {ok, <<"foobaz">>},
+            chakra:call(Ctx, <<"a.b.c">>, [foo, baz])
+        ),
+    ?assertEqual(
+            {ok, <<"foobaz">>},
+            chakra:call(Ctx, [<<"a">>, <<"b">>, <<"c">>], [foo, baz])
+        ),
+    ?assertEqual(
+            {ok, <<"foobaz">>},
+            chakra:call(Ctx, [a, <<"b">>, c], [foo, baz])
+        ).
+
+
 undefined_function_test() ->
     {ok, Ctx} = chakra:create_context(),
     ?assertEqual({error, undefined_function}, chakra:call(Ctx, foo, [bar])).
