@@ -21,6 +21,8 @@
 
 ErlNifResourceType* ErlChakraRtRes;
 ErlNifResourceType* ErlChakraCtxRes;
+ErlNifResourceType* ErlChakraSerializedScriptRes;
+
 
 typedef struct {
     ErlNifPid pid;
@@ -34,6 +36,16 @@ typedef struct {
     JsContextRef context;
     JsSourceContext source_ctx;
 } ErlChakraCtx;
+
+
+typedef struct {
+    ErlNifEnv* env;
+    ERL_NIF_TERM source_term;
+    ERL_NIF_TERM serialized_term;
+    ErlNifBinary source;
+    ErlNifBinary serialized;
+    JsParseScriptAttributes attrs;
+} ErlChakraSerializedScript;
 
 
 typedef struct {
@@ -119,6 +131,48 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
 }
 
 
+void
+erl_chakra_serialized_script_dtor(ErlNifEnv* env, void* obj)
+{
+    ErlChakraSerializedScript* script = (ErlChakraSerializedScript*) obj;
+    enif_free_env(script->env);
+}
+
+
+void
+erl_chakra_collect_serialized_object(JsValueRef obj, void* script)
+{
+    enif_release_resource(script);
+}
+
+
+bool
+erl_chakra_load_script(
+        JsSourceContext source_ctx,
+        JsValueRef* value,
+        JsParseScriptAttributes* attrs
+    )
+{
+    ErlChakraSerializedScript* script = (ErlChakraSerializedScript*) source_ctx;
+    JsErrorCode err;
+
+    err = JsCreateExternalArrayBuffer(
+            script->source.data,
+            script->source.size,
+            NULL,
+            NULL,
+            value
+        );
+    if(err != JsNoError) {
+        return false;
+    }
+
+    *attrs = script->attrs;
+
+    return true;
+}
+
+
 #define ATOM_MAP(NAME) ATOM_##NAME = enif_make_atom(env, #NAME)
 static void
 init_atoms(ErlNifEnv* env)
@@ -154,6 +208,18 @@ load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
             NULL
         );
     if(ErlChakraCtxRes == NULL) {
+        return 1;
+    }
+
+    ErlChakraSerializedScriptRes = enif_open_resource_type(
+            env,
+            NULL,
+            "erl_chakra_serialized_script",
+            erl_chakra_serialized_script_dtor,
+            ERL_NIF_RT_CREATE,
+            NULL
+        );
+    if(ErlChakraSerializedScriptRes == NULL) {
         return 1;
     }
 
@@ -537,6 +603,196 @@ error:
 
 
 static ERL_NIF_TERM
+nif_serialize(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraSerializedScript* script;
+    ErlChakraConv conv;
+    ERL_NIF_TERM ret;
+    JsValueRef js_script;
+    JsValueRef js_buffer;
+    unsigned char* buf_data;
+    unsigned int length;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+
+    if(argc != 2) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!enif_is_binary(env, argv[1])) {
+        return enif_make_badarg(env);
+    }
+
+    if(!check_pid(env, ctx->rt)) {
+        return enif_make_badarg(env);
+    }
+
+    script = enif_alloc_resource(
+            ErlChakraSerializedScriptRes,
+            sizeof(ErlChakraSerializedScript)
+        );
+    script->env = enif_alloc_env();
+    script->attrs = JsParseScriptAttributeNone;
+    script->source_term = enif_make_copy(script->env, argv[1]);
+
+    if(!enif_inspect_binary(
+            script->env, script->source_term, &(script->source))) {
+        enif_release_resource(script);
+        return enif_make_badarg(env);
+    }
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    err = JsCreateExternalArrayBuffer(
+            script->source.data,
+            script->source.size,
+            NULL,
+            NULL,
+            &js_script
+        );
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    err = JsSerialize(js_script, &js_buffer, script->attrs);
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    err = JsGetArrayBufferStorage(js_buffer, &buf_data, &length);
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    if(!enif_alloc_binary(length, &(script->serialized))) {
+        ret = enif_make_badarg(env);
+        goto done;
+    }
+
+    memcpy(script->serialized.data, buf_data, length);
+    script->serialized_term = enif_make_binary(
+            script->env,
+            &(script->serialized)
+        );
+
+    ret = t2(env, ATOM_ok, enif_make_resource(env, script));
+    goto done;
+
+js_error:
+    ret = js2erl_error(&conv, err);
+
+done:
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    enif_release_resource(script);
+    return ret;
+}
+
+
+static ERL_NIF_TERM
+nif_run_serialized(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraSerializedScript* script;
+    ErlChakraConv conv;
+    JsValueRef script_name;
+    JsValueRef js_serialized;
+    JsValueRef js_result;
+    ERL_NIF_TERM ret;
+    JsErrorCode err;
+
+    init_conv(&conv, env);
+
+    if(argc != 2) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!enif_get_resource(
+            env, argv[1], ErlChakraSerializedScriptRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    script = (ErlChakraSerializedScript*) res_handle;
+
+    if(!check_pid(env, ctx->rt)) {
+        return enif_make_badarg(env);
+    }
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    err = JsCreateString("<ERLANG>", strlen("<ERLANG>"), &script_name);
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    err = JsCreateExternalArrayBuffer(
+            script->serialized.data,
+            script->serialized.size,
+            NULL,
+            NULL,
+            &js_serialized
+        );
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    err = JsSetObjectBeforeCollectCallback(
+            js_serialized,
+            script,
+            erl_chakra_collect_serialized_object
+        );
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    enif_keep_resource(script);
+
+    err = JsRunSerialized(
+            js_serialized,
+            erl_chakra_load_script,
+            (JsSourceContext) script,
+            script_name,
+            &js_result
+        );
+    if(err != JsNoError) {
+        goto js_error;
+    }
+
+    ret = js2erl(&conv, js_result);
+    if(!conv.failed) {
+        ret = t2(env, ATOM_ok, ret);
+    }
+
+    goto done;
+
+js_error:
+    ret = js2erl_error(&conv, err);
+
+done:
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return ret;
+}
+
+
+static ERL_NIF_TERM
 nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
@@ -712,9 +968,10 @@ static ErlNifFunc funcs[] =
 
     {"nif_create_context", 1, nif_create_context, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_run", 2, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_serialize", 2, nif_serialize, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_run_serialized", 2, nif_run_serialized, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_call", 3, nif_call, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND}
-
 };
 
 ERL_NIF_INIT(chakra, funcs, &load, NULL, NULL, &unload);

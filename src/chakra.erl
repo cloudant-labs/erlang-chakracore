@@ -15,6 +15,8 @@
     create_context/0,
     create_context/1,
     run/2,
+    serialize/2,
+    run_serialized/2,
     call/3,
     idle/1
 ]).
@@ -80,6 +82,14 @@ run(Ctx, Script) ->
     nif_run(Ctx, Script).
 
 
+serialize(Ctx, Script) when is_binary(Script) ->
+    nif_serialize(Ctx, Script).
+
+
+run_serialized(Ctx, SerializedScript) ->
+    nif_run_serialized(Ctx, SerializedScript).
+
+
 call(Ctx, Name, Args) when is_list(Args) ->
     nif_call(Ctx, Name, Args).
 
@@ -100,41 +110,19 @@ init() ->
     erlang:load_nif(filename:join(PrivDir, "chakra"), 0).
 
 
-nif_create_runtime(_Options) ->
-    erlang:nif_error(chakra_nif_not_loaded).
+-define(NOT_LOADED, erlang:nif_error({chakra_nif_not_loaded, ?FILE, ?LINE})).
 
+nif_create_runtime(_Options) -> ?NOT_LOADED.
+nif_memory_usage(_Ctx) -> ?NOT_LOADED.
+nif_gc(_Ctx) -> ?NOT_LOADED.
+nif_enable(_Ctx) -> ?NOT_LOADED.
+nif_disable(_Ctx) -> ?NOT_LOADED.
+nif_interrupt(_Ctx) -> ?NOT_LOADED.
 
-nif_memory_usage(_Ctx) ->
-    erlang:nif_error(chakra_nif_not_loaded).
+nif_create_context(_Options) -> ?NOT_LOADED.
+nif_run(_Ctx, _Script) -> ?NOT_LOADED.
+nif_serialize(_Ctx, _Script) -> ?NOT_LOADED.
+nif_run_serialized(_Ctx, _SerializedScript) -> ?NOT_LOADED.
+nif_call(_Ctx, _Name, _Args) -> ?NOT_LOADED.
+nif_idle(_Ctx) -> ?NOT_LOADED.
 
-
-nif_gc(_Ctx) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_enable(_Ctx) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_disable(_Ctx) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_interrupt(_Ctx) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_create_context(_Options) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_run(_Ctx, _Script) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_call(_Ctx, _Name, _Args) ->
-    erlang:nif_error(chakra_nif_not_loaded).
-
-
-nif_idle(_Ctx) ->
-    erlang:nif_error(chakra_nif_not_loaded).

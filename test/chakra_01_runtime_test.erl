@@ -84,7 +84,7 @@ memory_drop_test() ->
 
 
 ctx_gc_test() ->
-    {ok, Rt} = chakra:create_runtime(),
+    {ok, Rt} = chakra:create_runtime([disable_background_work]),
     {ok, Size1} = chakra:memory_usage(Rt),
 
     create_destroy_contexts(Rt),
@@ -95,8 +95,8 @@ ctx_gc_test() ->
 
     {ok, Size3} = chakra:memory_usage(Rt),
 
-    ?assert(Size1 < Size2),
-    ?assert(Size3 < Size2).
+    ?assert(Size1 < Size2 / 2),
+    ?assert(Size3 < Size2 / 2).
 
 
 create_destroy_contexts(Rt) ->

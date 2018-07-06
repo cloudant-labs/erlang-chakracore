@@ -7,7 +7,6 @@ Yep.
 ToDo
 ---
 
-* Add parseable scripts?
 * Add "dot.ed.name" syntax to chakra:call
 * Add erlang.send? Or some other callback communication?
 * Add script names
