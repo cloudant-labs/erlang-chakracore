@@ -43,7 +43,7 @@ js_to_erl_test_() ->
     ],
     {ok, Ctx} = chakra:create_context(),
     lists:map(fun({Js, Expect}) ->
-        {Js, ?_assertEqual(Expect, element(2, chakra:run(Ctx, Js)))}
+        {Js, ?_assertEqual(Expect, element(2, chakra:eval(Ctx, Js)))}
     end, Pairs).
 
 
@@ -62,7 +62,7 @@ rt_test_() ->
         [1, true, <<"stuff">>]
     ],
     {ok, Ctx} = chakra:create_context(),
-    {ok, _} = chakra:run(Ctx, <<"function ident(a) {return a;};">>),
+    {ok, _} = chakra:eval(Ctx, <<"function ident(a) {return a;};">>),
     lists:map(fun(Value) ->
         Name = lists:flatten(io_lib:format("~p", [Value])),
         {
@@ -74,7 +74,7 @@ rt_test_() ->
 
 bad_term_test_() ->
     {ok, Ctx} = chakra:create_context(),
-    {ok, _} = chakra:run(Ctx, <<"function ident(a) {return a;};">>),
+    {ok, _} = chakra:eval(Ctx, <<"function ident(a) {return a;};">>),
     [
         ?_assertMatch(
             {invalid_term, _},
@@ -93,7 +93,7 @@ bad_term_test_() ->
 
 bad_list_test_() ->
     {ok, Ctx} = chakra:create_context(),
-    {ok, _} = chakra:run(Ctx, <<"function ident(a) {return a;};">>),
+    {ok, _} = chakra:eval(Ctx, <<"function ident(a) {return a;};">>),
     ?_assertMatch(
         {invalid_term, _},
         chakra:call(Ctx, ident, [[erlang:make_ref()]])
@@ -102,7 +102,7 @@ bad_list_test_() ->
 
 bad_object_test_() ->
     {ok, Ctx} = chakra:create_context(),
-    {ok, _} = chakra:run(Ctx, <<"function ident(a) {return a;};">>),
+    {ok, _} = chakra:eval(Ctx, <<"function ident(a) {return a;};">>),
     [
         ?_assertMatch(
             {invalid_term, _},

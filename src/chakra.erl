@@ -26,9 +26,9 @@
 
     create_context/0,
     create_context/1,
-    run/2,
     serialize/2,
-    run_serialized/2,
+    run/2,
+    eval/2,
     call/3,
     idle/1
 ]).
@@ -90,16 +90,21 @@ create_context(Options) when is_list(Options) ->
     nif_create_context(Rt).
 
 
-run(Ctx, Script) ->
-    nif_run(Ctx, Script).
-
-
 serialize(Ctx, Script) when is_binary(Script) ->
     nif_serialize(Ctx, Script).
 
 
-run_serialized(Ctx, SerializedScript) ->
-    nif_run_serialized(Ctx, SerializedScript).
+run(Ctx, SerializedScript) ->
+    nif_run(Ctx, SerializedScript).
+
+
+eval(Ctx, Script) when is_binary(Script) ->
+    case serialize(Ctx, Script) of
+        {ok, Serialized} ->
+            run(Ctx, Serialized);
+        Else ->
+            Else
+    end.
 
 
 call(Ctx, Name, Args) when is_atom(Name) ->
@@ -138,9 +143,8 @@ nif_disable(_Ctx) -> ?NOT_LOADED.
 nif_interrupt(_Ctx) -> ?NOT_LOADED.
 
 nif_create_context(_Options) -> ?NOT_LOADED.
-nif_run(_Ctx, _Script) -> ?NOT_LOADED.
 nif_serialize(_Ctx, _Script) -> ?NOT_LOADED.
-nif_run_serialized(_Ctx, _SerializedScript) -> ?NOT_LOADED.
+nif_run(_Ctx, _Script) -> ?NOT_LOADED.
 nif_call(_Ctx, _Name, _Args) -> ?NOT_LOADED.
 nif_idle(_Ctx) -> ?NOT_LOADED.
 
