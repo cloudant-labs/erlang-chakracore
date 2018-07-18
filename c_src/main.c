@@ -561,7 +561,7 @@ nif_serialize(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     unsigned char* tgt_buf;
     unsigned int length;
     bool is_disabled;
-    JsErrorCode err;
+    JsErrorCode err = JsNoError;
 
     init_conv(&conv, env);
 
@@ -654,17 +654,25 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ErlChakraCtx* ctx;
     ErlChakraSerializedScript* script;
     ErlChakraConv conv;
+
+    ErlNifBinary src_url;
     ErlNifBinary serialized;
-    JsValueRef script_name;
+    ERL_NIF_TERM opt;
+    ERL_NIF_TERM opts;
+    const ERL_NIF_TERM* tuple;
+    int arity;
+
+    JsValueRef js_src_url = JS_INVALID_REFERENCE;
     JsValueRef js_serialized;
     JsValueRef js_result;
+
     ERL_NIF_TERM ret;
     bool is_disabled;
-    JsErrorCode err;
+    JsErrorCode err = JsNoError;
 
     init_conv(&conv, env);
 
-    if(argc != 2) {
+    if(argc != 3) {
         return enif_make_badarg(env);
     }
 
@@ -692,9 +700,45 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
+    opts = argv[2];
+    if(!enif_is_list(env, opts)) {
+        return enif_make_badarg(env);
+    }
+
     err = JsIsRuntimeExecutionDisabled(ctx->rt->runtime, &is_disabled);
     if(err != JsNoError) {
         goto done;
+    }
+
+    while(enif_get_list_cell(env, opts, &opt, &opts)) {
+        if(!enif_get_tuple(env, opt, &arity, &tuple)) {
+            ret = enif_make_badarg(env);
+            goto done;
+        }
+
+        if(arity != 2) {
+            ret = enif_make_badarg(env);
+            goto done;
+        }
+
+        if(tuple[0] == ATOM_source_url) {
+            if(!enif_inspect_binary(env, tuple[1], &src_url)) {
+                ret = enif_make_badarg(env);
+                goto done;
+            }
+
+            err = JsCreateString(
+                    (char*) src_url.data,
+                    src_url.size,
+                    &js_src_url
+                );
+            if(err != JsNoError) {
+                goto done;
+            }
+        } else {
+            ret = enif_make_badarg(env);
+            goto done;
+        }
     }
 
     if(is_disabled) {
@@ -702,9 +746,11 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         goto done;
     }
 
-    err = JsCreateString("<ERLANG>", strlen("<ERLANG>"), &script_name);
-    if(err != JsNoError) {
-        goto done;
+    if(js_src_url == JS_INVALID_REFERENCE) {
+        err = JsCreateString("<ERLANG>", strlen("<ERLANG>"), &js_src_url);
+        if(err != JsNoError) {
+            goto done;
+        }
     }
 
     err = JsCreateExternalArrayBuffer(
@@ -733,7 +779,7 @@ nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
             js_serialized,
             erl_chakra_load_script,
             (JsSourceContext) script,
-            script_name,
+            js_src_url,
             &js_result
         );
     if(err != JsNoError) {
@@ -775,7 +821,7 @@ nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     size_t length;
     size_t i;
     bool is_disabled;
-    JsErrorCode err;
+    JsErrorCode err = JsNoError;
 
     init_conv(&conv, env);
 
@@ -877,7 +923,7 @@ nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ERL_NIF_TERM ret;
     unsigned int ticks;
     bool is_disabled;
-    JsErrorCode err;
+    JsErrorCode err = JsNoError;
 
     init_conv(&conv, env);
 
@@ -937,7 +983,7 @@ static ErlNifFunc funcs[] =
 
     {"nif_create_context", 1, nif_create_context, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_serialize", 2, nif_serialize, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"nif_run", 2, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_run", 3, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_call", 3, nif_call, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND}
 };

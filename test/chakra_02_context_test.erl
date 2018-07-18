@@ -211,3 +211,31 @@ js_gc_serialized_test_() ->
         ?assert(JsSize1 < JsSize2 / 2),
         ?assert(JsSize3 < JsSize2 / 2)
     end}.
+
+
+default_source_url_test() ->
+    Script = <<"function a() {throw new Error();}; a();">>,
+    {ok, Ctx} = chakra:create_context(),
+
+    {exception, {ExcProps1}} = chakra:eval(Ctx, Script),
+    {_, Stack1} = lists:keyfind(<<"stack">>, 1, ExcProps1),
+    ?assertNotEqual(nomatch, binary:match(Stack1, <<"<ERLANG>">>)),
+
+    {exception, {ExcProps2}} = chakra:call(Ctx, a, []),
+    {_, Stack2} = lists:keyfind(<<"stack">>, 1, ExcProps2),
+    ?assertNotEqual(nomatch, binary:match(Stack2, <<"<ERLANG>">>)).
+
+
+source_url_test() ->
+    Name = <<"myscript.js">>,
+    Script = <<"function a() {throw new Error();}; a();">>,
+    {ok, Ctx} = chakra:create_context(),
+
+    {exception, {ExcProps1}} = chakra:eval(Ctx, Script, [{source_url, Name}]),
+    {_, Stack1} = lists:keyfind(<<"stack">>, 1, ExcProps1),
+    ?assertNotEqual(nomatch, binary:match(Stack1, Name)),
+
+    {exception, {ExcProps2}} = chakra:call(Ctx, a, []),
+    {_, Stack2} = lists:keyfind(<<"stack">>, 1, ExcProps2),
+    ?assertNotEqual(nomatch, binary:match(Stack2, Name)).
+

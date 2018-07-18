@@ -79,6 +79,7 @@ ATOM_MAP(script_compile);
 ATOM_MAP(script_eval_disabled);
 ATOM_MAP(script_exception);
 ATOM_MAP(script_terminated);
+ATOM_MAP(source_url);
 ATOM_MAP(true);
 ATOM_MAP(undefined);
 ATOM_MAP(undefined_function);
