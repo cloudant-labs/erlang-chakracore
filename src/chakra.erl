@@ -36,6 +36,11 @@
 ]).
 
 
+-type runtime() :: reference().
+-type context() :: reference().
+-type script() :: reference().
+
+
 -type runtime_opt() :: [
     {memory_limit, integer()}
     | disable_background_work
@@ -47,44 +52,67 @@
 ].
 
 
--spec create_runtime() -> {ok, reference()} | {error, atom()}.
+-type run_opt() :: [
+    {source_url, binary()}
+].
+
+
+-type js_val() ::
+    true
+    | false
+    | null
+    | undefined
+    | number()
+    | atom()
+    | binary()
+    | [js_val()]
+    | {[{atom() | binary(), js_val()}]}.
+
+
+
+-spec create_runtime() -> {ok, runtime()} | {error, atom()}.
 create_runtime() ->
     create_runtime([]).
 
 
--spec create_runtime([runtime_opt()]) -> {ok, reference()} | {error, atom()}.
+-spec create_runtime([runtime_opt()]) -> {ok, runtime()} | {error, atom()}.
 create_runtime(Options) when is_list(Options) ->
     nif_create_runtime(Options).
 
 
-memory_usage(Ctx) ->
-    nif_memory_usage(Ctx).
+-spec memory_usage(runtime()) -> {ok, non_neg_integer()} | {error, any()}.
+memory_usage(Runtime) ->
+    nif_memory_usage(Runtime).
 
 
-gc(Ctx) ->
-    nif_gc(Ctx).
+-spec gc(runtime()) -> ok | {error, any()}.
+gc(Runtime) ->
+    nif_gc(Runtime).
 
 
-enable(Ctx) ->
-    nif_enable(Ctx).
+-spec enable(runtime()) -> ok | {error, any()}.
+enable(Runtime) ->
+    nif_enable(Runtime).
 
 
-disable(Ctx) ->
-    nif_disable(Ctx).
+-spec disable(runtime()) -> ok | {error, any()}.
+disable(Runtime) ->
+    nif_disable(Runtime).
 
 
-interrupt(Ctx) ->
-    nif_interrupt(Ctx).
+-spec interrupt(runtime()) -> ok | {error, any()}.
+interrupt(Runtime) ->
+    nif_interrupt(Runtime).
 
 
--spec create_context() -> {ok, reference()} | {error, atom()}.
+-spec create_context() -> {ok, context()} | {error, atom()}.
 create_context() ->
     {ok, Rt} = create_runtime(),
     create_context(Rt).
 
 
--spec create_context([runtime_opt()] | reference()) ->
-            {ok, reference()} | {error, atom()}.
+-spec create_context([runtime_opt()] | runtime()) ->
+            {ok, context()} | {error, atom()}.
 create_context(Runtime) when is_reference(Runtime) ->
     nif_create_context(Runtime);
 create_context(Options) when is_list(Options) ->
@@ -92,22 +120,31 @@ create_context(Options) when is_list(Options) ->
     nif_create_context(Rt).
 
 
+-spec serialize(context(), binary()) -> {ok, script()} | {error, any()}.
 serialize(Ctx, Script) when is_binary(Script) ->
     nif_serialize(Ctx, Script).
 
 
-run(Ctx, SerializedScript) ->
-    run(Ctx, SerializedScript, []).
+-spec run(context(), script()) ->
+        {ok, js_val()} | {exception, any()} | {error, any()}.
+run(Ctx, Script) ->
+    run(Ctx, Script, []).
 
 
+-spec run(context(), script(), [run_opt()]) ->
+        {ok, js_val()} | {exception, any()} | {error, any()}.
 run(Ctx, SerializedScript, Opts) ->
     nif_run(Ctx, SerializedScript, Opts).
 
 
+-spec eval(context(), binary()) ->
+        {ok, js_val()} | {exception, any()} | {error, any()}.
 eval(Ctx, Script) when is_binary(Script) ->
     eval(Ctx, Script, []).
 
 
+-spec eval(context(), binary(), [run_opt()]) ->
+        {ok, js_val()} | {exception, any()} | {error, any()}.
 eval(Ctx, Script, Opts) when is_binary(Script), is_list(Opts) ->
     case serialize(Ctx, Script) of
         {ok, Serialized} ->
@@ -117,6 +154,8 @@ eval(Ctx, Script, Opts) when is_binary(Script), is_list(Opts) ->
     end.
 
 
+-spec call(context(), atom() | binary() | [atom() | binary()], [js_val()]) ->
+        {ok, any()} | {exception, any()} | {error, any()}.
 call(Ctx, Name, Args) when is_atom(Name) ->
     call(Ctx, list_to_binary(atom_to_list(Name)), Args);
 
@@ -127,6 +166,7 @@ call(Ctx, Name, Args) when is_list(Name), is_list(Args) ->
     nif_call(Ctx, Name, Args).
 
 
+-spec idle(context()) -> ok | {error, any()}.
 idle(Ctx) ->
     nif_idle(Ctx).
 
