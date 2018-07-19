@@ -3,6 +3,11 @@ Erlang bindings for ChakraCore
 
 This is a set of thin wrappers around Microsoft's ChakraCore JavaScript engine. Currently these bindings allow for the basic interaction of Erlang and JavaScript via script evaluation and calling named functions. There is basic support for converting a subset of Erlang terms (roughly the ErlJSON representation used by Jiffy) to JavaScript and back.
 
+Erlang Requirements
+---
+
+Erlang 17+ should work with erlang-chakracore as long as the VM has been configured with dirty scheduler support. As of Erlang 20 this is the default configuration.
+
 Basic Terminology
 ---
 
@@ -59,7 +64,7 @@ ok = chakra:enable(Rt),
 {ok, 5} = chakra:eval(Ctx, <<"var a = 1; a * 5;">>).
 ```
 
-If a developer intends to allow for execution of arbitrary user supplied JavaScript its a good idea to set up a watchdog for every runtime. This watchdog is a separate Erlang pid that will call `chakra:interrupt/1` with the given `Runtime` instance at the desired timeout. Note that the `allow_script_interrupt` option must be provided when creating the `Runtime`.
+If a developer intends to allow for execution of arbitrary user supplied JavaScript, it's a good idea to set up a watchdog for every runtime. This watchdog is a separate Erlang pid that will call `chakra:interrupt/1` with the given `Runtime` instance at the desired timeout. Note that the `allow_script_interrupt` option must be provided when creating the `Runtime`.
 
 When a `Runtime` is interrupted it is left in the `disabled` state which prevents it from executing any JavaScript until it is re-enabled via `chakra:enable/1`.
 
@@ -101,7 +106,7 @@ A short collection of non-obvious things the API is capable of along with explan
 * `{memory_limit, integer()}` - Limit the total amount of memory for a given `Runtime` instance. Once this limit is reached ChakraCore will start generating "Out of memory" errors until garbage can be collected.
 * `disable_background_work` - By default, ChakraCore creates two threads per `Runtime` instance for garbage collection and other background tasks. This option can disable the use of extra threads and that work will be done on the same thread as the `Runtime` is executing on. This is advisable if a large number of `Runtime` instances are created simultaneously.
 * `allow_script_interrupt` - Allows the use of `chakra:interrupt/1` from other Erlang processes
-* `enable_idle_processing` - An advanced feature allows developers to inform the JavaScript engine when its appropriate for a `Context` to perform its idle work via `chakra:idle/1`. (I am unsure about the utility of this approach)
+* `enable_idle_processing` - An advanced feature allows developers to inform the JavaScript engine when it's appropriate for a `Context` to perform its idle work via `chakra:idle/1`. (I am unsure about the utility of this approach)
 * `disable_native_code_generation` - Disable ChakraCore's JIT
 * `disable_eval` - Disable the ability of JavaScript code to call `eval`.
 * `enable_experimental_features` - Will enable experimental features in whatever version of ChakraCore you have linked to (i.e., super advanced usage for those that know their specific ChakraCore build/deployment targets).
@@ -109,7 +114,7 @@ A short collection of non-obvious things the API is capable of along with explan
 
 ### Eval/Run Options
 
-* `{source_url, binary()}` - Provide a name for the script that is evaluated. This is how you can control source code name and location information in exception stack traces. While its called `source_url` there's no requirement that it be an actual URL. Anything like `foo.js` will work just fine here.
+* `{source_url, binary()}` - Provide a name for the script that is evaluated. This is how you can control source code name and location information in exception stack traces. While it's called `source_url` there's no requirement that it be an actual URL. Anything like `foo.js` will work just fine here.
 
 
 ### `chakra:gc/1`
