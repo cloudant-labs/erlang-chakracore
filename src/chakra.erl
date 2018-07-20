@@ -32,6 +32,7 @@
     eval/2,
     eval/3,
     call/3,
+    send/2,
     idle/1
 ]).
 
@@ -66,7 +67,8 @@
     | atom()
     | binary()
     | [js_val()]
-    | {[{atom() | binary(), js_val()}]}.
+    | {[{atom() | binary(), js_val()}]}
+    | pid().
 
 
 
@@ -166,6 +168,11 @@ call(Ctx, Name, Args) when is_list(Name), is_list(Args) ->
     nif_call(Ctx, Name, Args).
 
 
+-spec send(context(), any()) -> ok.
+send(Ctx, Term) ->
+    nif_send(Ctx, Term).
+
+
 -spec idle(context()) -> ok | {error, any()}.
 idle(Ctx) ->
     nif_idle(Ctx).
@@ -196,5 +203,6 @@ nif_create_context(_Options) -> ?NOT_LOADED.
 nif_serialize(_Ctx, _Script) -> ?NOT_LOADED.
 nif_run(_Ctx, _SerializedScript, _Opts) -> ?NOT_LOADED.
 nif_call(_Ctx, _Name, _Args) -> ?NOT_LOADED.
+nif_send(_Ctx, _Term) -> ?NOT_LOADED.
 nif_idle(_Ctx) -> ?NOT_LOADED.
 

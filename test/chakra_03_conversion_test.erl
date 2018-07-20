@@ -59,7 +59,8 @@ rt_test_() ->
         {[]},
         {[{<<"foo">>, true}, {<<"bar">>, [2, null]}]},
         [],
-        [1, true, <<"stuff">>]
+        [1, true, <<"stuff">>],
+        self()
     ],
     {ok, Ctx} = chakra:create_context(),
     {ok, _} = chakra:eval(Ctx, <<"function ident(a) {return a;};">>),
@@ -79,10 +80,6 @@ bad_term_test_() ->
         ?_assertMatch(
             {invalid_term, _},
             chakra:call(Ctx, ident, [erlang:make_ref()])
-        ),
-        ?_assertMatch(
-            {invalid_term, _},
-            chakra:call(Ctx, ident, [self()])
         ),
         ?_assertMatch(
             {invalid_number, _},

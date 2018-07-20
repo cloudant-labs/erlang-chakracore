@@ -18,6 +18,7 @@
 #include "erl_nif.h"
 #include "ChakraCore.h"
 
+#include "queue.h"
 
 #define ERL_CHAKRA_MAX_ATOM_LENGTH 255
 
@@ -39,6 +40,7 @@ typedef struct {
     ErlNifPid pid;
     JsRuntimeHandle runtime;
     bool allow_script_interrupt;
+    queue_ptr queue;
 } ErlChakraRt;
 
 
@@ -126,6 +128,10 @@ erl_chakra_rt_dtor(ErlNifEnv* env, void* obj)
     }
 
     JsDisposeRuntime(rt->runtime);
+
+    if(rt->queue != NULL) {
+        queue_destroy(rt->queue);
+    }
 }
 
 
@@ -133,10 +139,6 @@ void
 erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
 {
     ErlChakraCtx* ctx = (ErlChakraCtx*) obj;
-
-    if(ctx->rt == NULL) {
-        return;
-    }
 
     if(ctx->context != JS_INVALID_REFERENCE) {
         JsRelease(ctx->context, NULL);
@@ -160,6 +162,13 @@ void
 erl_chakra_collect_serialized_object(JsValueRef obj, void* script)
 {
     enif_release_resource(script);
+}
+
+
+void
+erl_chakra_finalize_pid(void* pid)
+{
+    enif_free(pid);
 }
 
 
@@ -192,6 +201,251 @@ erl_chakra_load_script(
     *attrs = script->attrs;
 
     return true;
+}
+
+JsValueRef
+erl_chakra_has_message(
+        JsValueRef callee,
+        bool is_construct,
+        JsValueRef* argv,
+        unsigned short argc,
+        void* state
+    )
+{
+    ErlChakraCtx* ctx = (ErlChakraCtx*) state;
+    JsValueRef ret;
+    JsErrorCode err;
+
+    if(queue_has_item(ctx->rt->queue)) {
+        err = JsGetTrueValue(&ret);
+    } else {
+        err = JsGetFalseValue(&ret);
+    }
+
+    if(err != JsNoError) {
+        return NULL;
+    }
+
+    return ret;
+}
+
+
+JsValueRef
+erl_chakra_receive(
+        JsValueRef callee,
+        bool is_construct,
+        JsValueRef* argv,
+        unsigned short argc,
+        void* state
+    )
+{
+    ErlChakraCtx* ctx = (ErlChakraCtx*) state;
+    ErlChakraConv conv;
+    ErlNifEnv* env;
+    ERL_NIF_TERM term;
+    JsValueRef ret;
+
+    if(!queue_pop(ctx->rt->queue, &env, &term)) {
+        return NULL;
+    }
+
+    init_conv(&conv, env);
+
+    term = erl2js(&conv, term, &ret);
+    if(term != ATOM_ok) {
+        return NULL;
+    }
+
+    return ret;
+}
+
+
+JsErrorCode
+erl_chakra_set_exception(const char* message)
+{
+    JsValueRef msg;
+    JsValueRef err_obj;
+    JsErrorCode err;
+
+    err = JsCreateString(message, strlen(message), &msg);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsCreateError(msg, &err_obj);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsSetException(err_obj);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    return JsNoError;
+}
+
+
+JsValueRef
+erl_chakra_send(
+        JsValueRef callee,
+        bool is_construct,
+        JsValueRef* argv,
+        unsigned short argc,
+        void* state
+    )
+{
+    ErlChakraConv conv;
+
+    ErlNifPid* pid;
+    ErlNifEnv* env = NULL;
+    ERL_NIF_TERM term;
+
+    JsErrorCode err = JsNoError;
+
+    bool has_external;
+    void* tmp;
+
+    if(argc < 3) {
+        err = erl_chakra_set_exception("Missing required arguments");
+        goto done;
+    }
+
+    if(argc > 3) {
+        err = erl_chakra_set_exception("Extraneous arguments to send");
+        goto done;
+    }
+
+    err = JsHasExternalData(argv[1], &has_external);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    if(!has_external) {
+        err = erl_chakra_set_exception("Invalid pid argument");
+        goto done;
+    }
+
+    err = JsGetExternalData(argv[1], &tmp);
+    if(err != JsNoError) {
+        goto done;
+    }
+    pid = (ErlNifPid*) tmp;
+
+    env = enif_alloc_env();
+    init_conv(&conv, env);
+
+    term = js2erl(&conv, argv[2]);
+    if(conv.failed) {
+        err = erl_chakra_set_exception("Invalid message argument");
+        goto done;
+    }
+
+    if(!enif_send(NULL, pid, env, term)) {
+        err = erl_chakra_set_exception("Failed to send message");
+        goto done;
+    }
+
+done:
+    if(env != NULL) {
+        enif_free_env(env);
+    }
+
+    return JS_INVALID_REFERENCE;
+}
+
+
+JsErrorCode
+erl_chakra_define_function(
+        ErlChakraCtx* ctx,
+        JsValueRef obj,
+        const char* name,
+        JsNativeFunction func
+    )
+{
+    JsPropertyIdRef key;
+    JsValueRef js_name;
+    JsValueRef js_func;
+    JsErrorCode err;
+
+    err = JsCreatePropertyId(name, strlen(name), &key);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsCreateString(name, strlen(name), &js_name);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsCreateNamedFunction(js_name, func, ctx, &js_func);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsSetProperty(obj, key, js_func, false);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    return JsNoError;
+}
+
+
+JsErrorCode
+erl_chakra_init_native_functions(ErlChakraCtx* ctx)
+{
+    JsValueRef global;
+    JsValueRef erlang;
+    JsPropertyIdRef key;
+    JsErrorCode err = JsNoError;;
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsGetGlobalObject(&global);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsCreateObject(&erlang);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsCreatePropertyId("erlang", strlen("erlang"), &key);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsSetProperty(global, key, erlang, false);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = erl_chakra_define_function(
+            ctx, erlang, "has_message", erl_chakra_has_message);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = erl_chakra_define_function(
+            ctx, erlang, "receive", erl_chakra_receive);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = erl_chakra_define_function(
+            ctx, erlang, "send", erl_chakra_send);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+done:
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return err;
 }
 
 
@@ -319,6 +573,11 @@ nif_create_runtime(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     rt = enif_alloc_resource(ErlChakraRtRes, sizeof(ErlChakraRt));
     rt->runtime = JS_INVALID_RUNTIME_HANDLE;
+    rt->queue = queue_create();
+    if(rt->queue == NULL) {
+        enif_release_resource(rt);
+        return enif_make_badarg(env);
+    }
 
     if((attrs & JsRuntimeAttributeAllowScriptInterrupt) == 0) {
         rt->allow_script_interrupt = false;
@@ -494,6 +753,8 @@ nif_interrupt(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         return t2(env, ATOM_error, js2erl_error_code(err));
     }
 
+    queue_interrupt(rt->queue);
+
     return ATOM_ok;
 }
 
@@ -538,6 +799,8 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         enif_release_resource(ctx);
         return js2erl_error(&conv, err);
     }
+
+    err = erl_chakra_init_native_functions(ctx);
 
     ret = enif_make_resource(env, ctx);
     enif_release_resource(ctx);
@@ -915,6 +1178,29 @@ done:
 
 
 static ERL_NIF_TERM
+nif_send(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+
+    if(argc != 2) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!queue_push(ctx->rt->queue, argv[1])) {
+        return enif_make_badarg(env);
+    }
+
+    return ATOM_ok;
+}
+
+
+static ERL_NIF_TERM
 nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
@@ -985,6 +1271,7 @@ static ErlNifFunc funcs[] =
     {"nif_serialize", 2, nif_serialize, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_run", 3, nif_run, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"nif_call", 3, nif_call, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"nif_send", 2, nif_send, 0},
     {"nif_idle", 1, nif_idle, ERL_NIF_DIRTY_JOB_CPU_BOUND}
 };
 
@@ -1324,6 +1611,39 @@ erl2js_object(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
 
 
 ERL_NIF_TERM
+erl2js_pid(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
+{
+    ERL_NIF_TERM ret;
+    JsValueRef js_obj;
+    JsErrorCode err;
+
+    ErlNifPid* pid = (ErlNifPid*) enif_alloc(sizeof(ErlNifPid));
+
+    if(!enif_get_local_pid(conv->env, obj, pid)) {
+        ret = ATOM_invalid_pid;
+        goto done;
+    }
+
+    err = JsCreateExternalObject(pid, erl_chakra_finalize_pid, &js_obj);
+    if(err != JsNoError) {
+        ret = js2erl_error(conv, err);
+        goto done;
+    }
+
+    *out = js_obj;
+    pid = NULL;
+    ret = ATOM_ok;
+
+done:
+    if(pid != NULL) {
+        enif_free(pid);
+    }
+
+    return ret;
+}
+
+
+ERL_NIF_TERM
 erl2js(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
 {
     if(enif_is_atom(conv->env, obj)) {
@@ -1344,6 +1664,10 @@ erl2js(ErlChakraConv* conv, ERL_NIF_TERM obj, JsValueRef* out)
 
     if(enif_is_tuple(conv->env, obj)) {
         return erl2js_object(conv, obj, out);
+    }
+
+    if(enif_is_pid(conv->env, obj)) {
+        return erl2js_pid(conv, obj, out);
     }
 
     return t2(conv->env, ATOM_invalid_term, obj);
@@ -1452,6 +1776,7 @@ js2erl_object(ErlChakraConv* conv, JsValueRef obj)
     ERL_NIF_TERM erl_key;
     ERL_NIF_TERM erl_val;
     ERL_NIF_TERM pair;
+    ErlNifPid* pid;
 
     JsValueRef prop_names;
     JsPropertyIdRef prop;
@@ -1459,9 +1784,25 @@ js2erl_object(ErlChakraConv* conv, JsValueRef obj)
     JsValueRef js_key;
     JsValueRef js_val;
 
+    void* external_data;
+    bool has_external;
     int length;
     int i;
     JsErrorCode err;
+
+    err = JsHasExternalData(obj, &has_external);
+    if(err != JsNoError) {
+        return js2erl_error(conv, err);
+    }
+
+    if(has_external) {
+        err = JsGetExternalData(obj, &external_data);
+        if(err != JsNoError) {
+            return js2erl_error(conv, err);
+        }
+        pid = (ErlNifPid*) external_data;
+        return enif_make_pid(conv->env, pid);
+    }
 
     err = JsGetOwnPropertyNames(obj, &prop_names);
     // Kinda hack, but if we hit out of memory then
