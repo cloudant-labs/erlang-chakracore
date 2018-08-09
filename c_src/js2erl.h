@@ -10,19 +10,18 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
+#ifndef ERL_CHAKRA_JS2ERL_H
+#define ERL_CHAKRA_JS2ERL_H
 
-#ifndef ERL_CHAKRA_ATOMS_H
-#define ERL_CHAKRA_ATOMS_H
 
 #include "erl_nif.h"
+#include "ChakraCore.h"
+
+#include "atoms.h"
 
 
-#define ATOM_MAP(NAME) extern ERL_NIF_TERM ATOM_##NAME;
-#include "atom_names.h"
-#undef ATOM_MAP
+bool js2erl(ErlNifEnv* env, JsValueRef obj, ERL_NIF_TERM* out);
+bool js2erl_error(ErlNifEnv* env, JsErrorCode err, ERL_NIF_TERM* out);
+ERL_NIF_TERM js2erl_error_code(JsErrorCode err);
 
-
-void erl_chakra_init_atoms();
-
-
-#endif // Included atoms.h
+#endif // Included js2erl.h

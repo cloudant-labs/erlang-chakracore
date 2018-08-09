@@ -10,19 +10,18 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-
-#ifndef ERL_CHAKRA_ATOMS_H
-#define ERL_CHAKRA_ATOMS_H
+#ifndef CHAKRA_UTIL_H
+#define CHAKRA_UTIL_H
 
 #include "erl_nif.h"
 
 
-#define ATOM_MAP(NAME) extern ERL_NIF_TERM ATOM_##NAME;
-#include "atom_names.h"
-#undef ATOM_MAP
+#define ERL_CHAKRA_MAX_ATOM_LENGTH 255
+
+#define ERL_CHAKRA_OK 0
+#define ERL_CHAKRA_ERROR 1
 
 
-void erl_chakra_init_atoms();
+#define T2(e, a, b) enif_make_tuple2(e, a, b);
 
-
-#endif // Included atoms.h
+#endif // Included util.h

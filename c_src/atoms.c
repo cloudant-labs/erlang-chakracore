@@ -10,19 +10,18 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-
-#ifndef ERL_CHAKRA_ATOMS_H
-#define ERL_CHAKRA_ATOMS_H
-
-#include "erl_nif.h"
+#include "atoms.h"
 
 
-#define ATOM_MAP(NAME) extern ERL_NIF_TERM ATOM_##NAME;
+#define ATOM_MAP(NAME) ERL_NIF_TERM ATOM_##NAME
 #include "atom_names.h"
 #undef ATOM_MAP
 
 
-void erl_chakra_init_atoms();
-
-
-#endif // Included atoms.h
+#define ATOM_MAP(NAME) ATOM_##NAME = enif_make_atom(env, #NAME)
+void
+erl_chakra_init_atoms(ErlNifEnv* env)
+{
+    #include "atom_names.h"
+}
+#undef ATOM_MAP
