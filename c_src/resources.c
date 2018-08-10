@@ -83,6 +83,8 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
         JsRelease(ctx->context, NULL);
     }
 
+    enif_release_resource(ctx->rt);
+
     return;
 }
 

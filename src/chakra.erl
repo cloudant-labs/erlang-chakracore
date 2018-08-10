@@ -24,14 +24,15 @@
     disable/1,
     interrupt/1,
 
+    create_context/0,
     create_context/1,
-    serialize/3,
+    serialize/2,
+    run/2,
     run/3,
-    run/4,
+    eval/2,
     eval/3,
-    eval/4,
-    call/4,
-    idle/2
+    call/3,
+    idle/1
 ]).
 
 
@@ -109,61 +110,71 @@ interrupt(Runtime) ->
     nif_interrupt(Runtime).
 
 
--spec create_context(runtime()) -> {ok, context()} | {error, atom()}.
-create_context(Runtime) ->
+-spec create_context() -> {ok, context()} | {error, atom()}.
+create_context() ->
+    {ok, Runtime} = chakra:create_runtime(),
+    create_context(Runtime).
+
+
+-spec create_context([runtime_opt()] | runtime()) ->
+            {ok, context()} | {error, atom()}.
+create_context(Runtime) when is_reference(Runtime) ->
+    async(nif_create_context(Runtime));
+create_context(Options) when is_list(Options) ->
+    {ok, Runtime} = create_runtime(Options),
     async(nif_create_context(Runtime)).
 
 
--spec serialize(runtime(), context(), binary()) ->
+-spec serialize(context(), binary()) ->
         {ok, script()} | {error, any()}.
-serialize(Runtime, Ctx, Script) when is_binary(Script) ->
-    async(nif_serialize(Runtime, Ctx, Script)).
+serialize(Ctx, Script) when is_binary(Script) ->
+    async(nif_serialize(Ctx, Script)).
 
 
--spec run(runtime(), context(), script()) ->
+-spec run(context(), script()) ->
         {ok, js_val()} | {exception, any()} | {error, any()}.
-run(Runtime, Ctx, Script) ->
-    run(Runtime, Ctx, Script, []).
+run(Ctx, Script) ->
+    run(Ctx, Script, []).
 
 
--spec run(runtime(), context(), script(), [run_opt()]) ->
+-spec run(context(), script(), [run_opt()]) ->
         {ok, js_val()} | {exception, any()} | {error, any()}.
-run(Runtime, Ctx, SerializedScript, Opts) ->
-    async(nif_run(Runtime, Ctx, SerializedScript, Opts)).
+run(Ctx, SerializedScript, Opts) ->
+    async(nif_run(Ctx, SerializedScript, Opts)).
 
 
--spec eval(runtime(), context(), binary()) ->
+-spec eval(context(), binary()) ->
         {ok, js_val()} | {exception, any()} | {error, any()}.
-eval(Runtime, Ctx, Script) when is_binary(Script) ->
-    eval(Runtime, Ctx, Script, []).
+eval(Ctx, Script) when is_binary(Script) ->
+    eval(Ctx, Script, []).
 
 
--spec eval(runtime(), context(), binary(), [run_opt()]) ->
+-spec eval(context(), binary(), [run_opt()]) ->
         {ok, js_val()} | {exception, any()} | {error, any()}.
-eval(Runtime, Ctx, Script, Opts) when is_binary(Script), is_list(Opts) ->
-    case serialize(Runtime, Ctx, Script) of
+eval(Ctx, Script, Opts) when is_binary(Script), is_list(Opts) ->
+    case serialize(Ctx, Script) of
         {ok, Serialized} ->
-            run(Runtime, Ctx, Serialized, Opts);
+            run(Ctx, Serialized, Opts);
         Else ->
             Else
     end.
 
 
--spec call(runtime(), context(), function_name(), [js_val()]) ->
+-spec call(context(), function_name(), [js_val()]) ->
         {ok, any()} | {exception, any()} | {error, any()}.
-call(Runtime, Ctx, Name, Args) when is_atom(Name) ->
-    call(Runtime, Ctx, list_to_binary(atom_to_list(Name)), Args);
+call(Ctx, Name, Args) when is_atom(Name) ->
+    call(Ctx, list_to_binary(atom_to_list(Name)), Args);
 
-call(Runtime, Ctx, Name, Args) when is_binary(Name) ->
-    call(Runtime, Ctx, binary:split(Name, <<".">>, [global]), Args);
+call(Ctx, Name, Args) when is_binary(Name) ->
+    call(Ctx, binary:split(Name, <<".">>, [global]), Args);
 
-call(Runtime, Ctx, Name, Args) when is_list(Name), is_list(Args) ->
-    async(nif_call(Runtime, Ctx, Name, Args)).
+call(Ctx, Name, Args) when is_list(Name), is_list(Args) ->
+    async(nif_call(Ctx, Name, Args)).
 
 
--spec idle(runtime(), context()) -> ok | {error, any()}.
-idle(Runtime, Ctx) ->
-    async(nif_idle(Runtime, Ctx)).
+-spec idle(context()) -> ok | {error, any()}.
+idle(Ctx) ->
+    async(nif_idle(Ctx)).
 
 
 init() ->
@@ -198,8 +209,8 @@ nif_disable(_Rt) -> ?NOT_LOADED.
 nif_interrupt(_Rt) -> ?NOT_LOADED.
 
 nif_create_context(_Rt) -> ?NOT_LOADED.
-nif_serialize(_Rt, _Ctx, _Script) -> ?NOT_LOADED.
-nif_run(_Rt, _Ctx, _Script, _Opts) -> ?NOT_LOADED.
-nif_call(_Rt, _Ctx, _Name, _Args) -> ?NOT_LOADED.
-nif_idle(_Rt, _Ctx) -> ?NOT_LOADED.
+nif_serialize(_Ctx, _Script) -> ?NOT_LOADED.
+nif_run(_Ctx, _Script, _Opts) -> ?NOT_LOADED.
+nif_call(_Ctx, _Name, _Args) -> ?NOT_LOADED.
+nif_idle(_Ctx) -> ?NOT_LOADED.
 

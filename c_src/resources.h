@@ -22,12 +22,6 @@ extern ErlNifResourceType* ErlChakraCtxRes;
 extern ErlNifResourceType* ErlChakraScriptRes;
 
 
-typedef struct {
-    JsContextRef context;
-    JsSourceContext source_ctx;
-} ErlChakraCtx;
-
-
 typedef enum {
     ERL_CHAKRA_JOB_TYPE_UNKNOWN,
     ERL_CHAKRA_JOB_TYPE_CLOSE,
@@ -41,6 +35,7 @@ typedef enum {
     ERL_CHAKRA_JOB_TYPE_IDLE
 } ErlChakraJobType;
 
+typedef struct _ErlChakraCtx ErlChakraCtx;
 
 typedef struct _ErlChakraJob
 {
@@ -68,6 +63,13 @@ typedef struct {
 
     bool alive;
 } ErlChakraRt;
+
+
+struct _ErlChakraCtx {
+    ErlChakraRt* rt;
+    JsContextRef context;
+    JsSourceContext source_ctx;
+};
 
 
 typedef struct {

@@ -217,7 +217,10 @@ erl_chakra_rt_create_context(ErlChakraRt* rt, ErlChakraJob* job)
     JsErrorCode err;
 
     ctx = enif_alloc_resource(ErlChakraCtxRes, sizeof(ErlChakraCtx));
+    ctx->rt = rt;
     ctx->context = JS_INVALID_REFERENCE;
+
+    enif_keep_resource(rt);
 
     err = JsCreateContext(rt->runtime, &(ctx->context));
     if(err != JsNoError) {

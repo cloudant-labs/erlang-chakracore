@@ -320,40 +320,34 @@ static ERL_NIF_TERM
 nif_serialize(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
-    ErlChakraRt* rt;
     ErlChakraCtx* ctx;
     ErlChakraJob* job;
 
-    if(argc != 3) {
+    if(argc != 2) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    rt = (ErlChakraRt*) res_handle;
-
-    if(!enif_get_resource(env, argv[1], ErlChakraCtxRes, &res_handle)) {
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!enif_is_binary(env, argv[2])) {
+    if(!enif_is_binary(env, argv[1])) {
         return enif_make_badarg(env);
     }
 
-    if(!check_pid(env, rt)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
     job = erl_chakra_job_create();
     job->type = ERL_CHAKRA_JOB_TYPE_SERIALIZE;
     job->ctx = ctx;
-    job->args[0] = enif_make_copy(job->env, argv[2]);
+    job->args[0] = enif_make_copy(job->env, argv[1]);
 
     enif_keep_resource(ctx);
 
-    if(!erl_chakra_runtime_submit(rt, job)) {
+    if(!erl_chakra_runtime_submit(ctx->rt, job)) {
         erl_chakra_job_destroy(job);
         return enif_make_badarg(env);
     }
@@ -366,37 +360,31 @@ static ERL_NIF_TERM
 nif_run(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
-    ErlChakraRt* rt;
     ErlChakraCtx* ctx;
     ErlChakraJob* job;
 
-    if(argc != 4) {
+    if(argc != 3) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    rt = (ErlChakraRt*) res_handle;
-
-    if(!enif_get_resource(env, argv[1], ErlChakraCtxRes, &res_handle)) {
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!check_pid(env, rt)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
     job = erl_chakra_job_create();
     job->type = ERL_CHAKRA_JOB_TYPE_RUN;
     job->ctx = ctx;
-    job->args[0] = enif_make_copy(job->env, argv[2]);
-    job->args[1] = enif_make_copy(job->env, argv[3]);
+    job->args[0] = enif_make_copy(job->env, argv[1]);
+    job->args[1] = enif_make_copy(job->env, argv[2]);
 
     enif_keep_resource(ctx);
 
-    if(!erl_chakra_runtime_submit(rt, job)) {
+    if(!erl_chakra_runtime_submit(ctx->rt, job)) {
         erl_chakra_job_destroy(job);
         return enif_make_badarg(env);
     }
@@ -409,37 +397,31 @@ static ERL_NIF_TERM
 nif_call(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
-    ErlChakraRt* rt;
     ErlChakraCtx* ctx;
     ErlChakraJob* job;
 
-    if(argc != 4) {
+    if(argc != 3) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    rt = (ErlChakraRt*) res_handle;
-
-    if(!enif_get_resource(env, argv[1], ErlChakraCtxRes, &res_handle)) {
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!check_pid(env, rt)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
     job = erl_chakra_job_create();
     job->type = ERL_CHAKRA_JOB_TYPE_CALL;
     job->ctx = ctx;
-    job->args[0] = enif_make_copy(job->env, argv[2]);
-    job->args[1] = enif_make_copy(job->env, argv[3]);
+    job->args[0] = enif_make_copy(job->env, argv[1]);
+    job->args[1] = enif_make_copy(job->env, argv[2]);
 
     enif_keep_resource(ctx);
 
-    if(!erl_chakra_runtime_submit(rt, job)) {
+    if(!erl_chakra_runtime_submit(ctx->rt, job)) {
         erl_chakra_job_destroy(job);
         return enif_make_badarg(env);
     }
@@ -452,25 +434,19 @@ static ERL_NIF_TERM
 nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     void* res_handle;
-    ErlChakraRt* rt;
     ErlChakraCtx* ctx;
     ErlChakraJob* job;
 
-    if(argc != 2) {
+    if(argc != 1) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_get_resource(env, argv[0], ErlChakraRtRes, &res_handle)) {
-        return enif_make_badarg(env);
-    }
-    rt = (ErlChakraRt*) res_handle;
-
-    if(!enif_get_resource(env, argv[1], ErlChakraCtxRes, &res_handle)) {
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
         return enif_make_badarg(env);
     }
     ctx = (ErlChakraCtx*) res_handle;
 
-    if(!check_pid(env, rt)) {
+    if(!check_pid(env, ctx->rt)) {
         return enif_make_badarg(env);
     }
 
@@ -480,7 +456,7 @@ nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     enif_keep_resource(ctx);
 
-    if(!erl_chakra_runtime_submit(rt, job)) {
+    if(!erl_chakra_runtime_submit(ctx->rt, job)) {
         erl_chakra_job_destroy(job);
         return enif_make_badarg(env);
     }
@@ -499,10 +475,10 @@ static ErlNifFunc funcs[] =
     {"nif_interrupt", 1, nif_interrupt},
 
     {"nif_create_context", 1, nif_create_context},
-    {"nif_serialize", 3, nif_serialize},
-    {"nif_run", 4, nif_run},
-    {"nif_call", 4, nif_call},
-    {"nif_idle", 2, nif_idle}
+    {"nif_serialize", 2, nif_serialize},
+    {"nif_run", 3, nif_run},
+    {"nif_call", 3, nif_call},
+    {"nif_idle", 1, nif_idle}
 };
 
 ERL_NIF_INIT(chakra, funcs, &load, NULL, NULL, &unload);
