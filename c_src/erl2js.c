@@ -10,6 +10,7 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
+#include "atoms.h"
 #include "erl2js.h"
 #include "js2erl.h"
 #include "util.h"

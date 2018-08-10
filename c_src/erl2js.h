@@ -17,8 +17,6 @@
 #include "erl_nif.h"
 #include "ChakraCore.h"
 
-#include "atoms.h"
-
 
 ERL_NIF_TERM erl2js(ErlNifEnv* env, ERL_NIF_TERM obj, JsValueRef* out);
 

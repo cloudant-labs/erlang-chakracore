@@ -13,6 +13,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "atoms.h"
 #include "js2erl.h"
 #include "util.h"
 

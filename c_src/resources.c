@@ -11,7 +11,55 @@
 // the License.
 
 #include "resources.h"
+#include "runtime.h"
 
+ErlNifResourceType* ErlChakraRtRes;
+ErlNifResourceType* ErlChakraCtxRes;
+ErlNifResourceType* ErlChakraScriptRes;
+
+
+int
+erl_chakra_init_resources(ErlNifEnv* env)
+{
+
+    ErlChakraRtRes = enif_open_resource_type(
+            env,
+            NULL,
+            "erl_chakra_runtime",
+            erl_chakra_rt_dtor,
+            ERL_NIF_RT_CREATE,
+            NULL
+        );
+    if(ErlChakraRtRes == NULL) {
+        return 0;
+    }
+
+    ErlChakraCtxRes = enif_open_resource_type(
+            env,
+            NULL,
+            "erl_chakra_context",
+            erl_chakra_ctx_dtor,
+            ERL_NIF_RT_CREATE,
+            NULL
+        );
+    if(ErlChakraCtxRes == NULL) {
+        return 0;
+    }
+
+    ErlChakraScriptRes = enif_open_resource_type(
+            env,
+            NULL,
+            "erl_chakra_serialized_script",
+            erl_chakra_script_dtor,
+            ERL_NIF_RT_CREATE,
+            NULL
+        );
+    if(ErlChakraScriptRes == NULL) {
+        return 0;
+    }
+
+    return 1;
+}
 
 void
 erl_chakra_rt_dtor(ErlNifEnv* env, void* obj)
@@ -22,7 +70,7 @@ erl_chakra_rt_dtor(ErlNifEnv* env, void* obj)
         return;
     }
 
-    JsDisposeRuntime(rt->runtime);
+    erl_chakra_runtime_destroy(rt);
 }
 
 
@@ -31,23 +79,17 @@ erl_chakra_ctx_dtor(ErlNifEnv* env, void* obj)
 {
     ErlChakraCtx* ctx = (ErlChakraCtx*) obj;
 
-    if(ctx->rt == NULL) {
-        return;
-    }
-
     if(ctx->context != JS_INVALID_REFERENCE) {
         JsRelease(ctx->context, NULL);
     }
-
-    enif_release_resource(ctx->rt);
 
     return;
 }
 
 
 void
-erl_chakra_serialized_script_dtor(ErlNifEnv* env, void* obj)
+erl_chakra_script_dtor(ErlNifEnv* env, void* obj)
 {
-    ErlChakraSerializedScript* script = (ErlChakraSerializedScript*) obj;
+    ErlChakraScript* script = (ErlChakraScript*) obj;
     enif_free_env(script->env);
 }

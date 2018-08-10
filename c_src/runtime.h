@@ -10,16 +10,31 @@
 // License for the specific language governing permissions and limitations under
 // the License.
 
-#ifndef ERL_CHAKRA_JS2ERL_H
-#define ERL_CHAKRA_JS2ERL_H
+#ifndef ERL_CHAKRA_RUNTIME_H
+#define ERL_CHAKRA_RUNTIME_H
 
 
 #include "erl_nif.h"
 #include "ChakraCore.h"
 
+#include "resources.h"
 
-bool js2erl(ErlNifEnv* env, JsValueRef obj, ERL_NIF_TERM* out);
-bool js2erl_error(ErlNifEnv* env, JsErrorCode err, ERL_NIF_TERM* out);
-ERL_NIF_TERM js2erl_error_code(JsErrorCode err);
 
-#endif // Included js2erl.h
+ErlChakraJob* erl_chakra_job_create();
+void erl_chakra_job_destroy(ErlChakraJob* job);
+
+
+ERL_NIF_TERM erl_chakra_runtime_create(
+        ErlNifEnv* env,
+        JsRuntimeAttributes attrs,
+        int memory_limit,
+        int stack_size
+    );
+
+void erl_chakra_runtime_destroy(ErlChakraRt* rt);
+
+bool erl_chakra_runtime_submit(ErlChakraRt* rt, ErlChakraJob* job);
+
+
+
+#endif // Included runtime.h
