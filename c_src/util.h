@@ -18,10 +18,7 @@
 
 #define ERL_CHAKRA_MAX_ATOM_LENGTH 255
 
-#define ERL_CHAKRA_OK 0
-#define ERL_CHAKRA_ERROR 1
-
-
 #define T2(e, a, b) enif_make_tuple2(e, a, b);
+#define T3(e, a, b, c) enif_make_tuple3(e, a, b, c);
 
 #endif // Included util.h

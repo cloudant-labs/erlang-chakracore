@@ -291,7 +291,7 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ErlChakraRt* rt = NULL;
     ErlChakraJob* job;
 
-    if(argc != 1) {
+    if(argc != 2) {
         return enif_make_badarg(env);
     }
 
@@ -306,6 +306,7 @@ nif_create_context(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     job = erl_chakra_job_create();
     job->type = ERL_CHAKRA_JOB_TYPE_CREATE_CTX;
+    job->args[0] = enif_make_copy(job->env, argv[1]);
 
     if(!erl_chakra_runtime_submit(rt, job)) {
         erl_chakra_job_destroy(job);
@@ -465,6 +466,41 @@ nif_idle(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 }
 
 
+static ERL_NIF_TERM
+nif_respond(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    void* res_handle;
+    ErlChakraCtx* ctx;
+    ErlChakraJob* job;
+
+    if(argc != 2) {
+        return enif_make_badarg(env);
+    }
+
+    if(!enif_get_resource(env, argv[0], ErlChakraCtxRes, &res_handle)) {
+        return enif_make_badarg(env);
+    }
+    ctx = (ErlChakraCtx*) res_handle;
+
+    if(!check_pid(env, ctx->rt)) {
+        return enif_make_badarg(env);
+    }
+
+    job = erl_chakra_job_create();
+    job->type = ERL_CHAKRA_JOB_TYPE_RESPONSE;
+    job->ctx = ctx;
+
+    enif_keep_resource(ctx);
+
+    if(!erl_chakra_runtime_submit(ctx->rt, job)) {
+        erl_chakra_job_destroy(job);
+        return enif_make_badarg(env);
+    }
+
+    return T2(env, ATOM_ok, enif_make_copy(env, job->ref));
+}
+
+
 static ErlNifFunc funcs[] =
 {
     {"nif_create_runtime", 1, nif_create_runtime},
@@ -474,11 +510,12 @@ static ErlNifFunc funcs[] =
     {"nif_disable", 1, nif_disable},
     {"nif_interrupt", 1, nif_interrupt},
 
-    {"nif_create_context", 1, nif_create_context},
+    {"nif_create_context", 2, nif_create_context},
     {"nif_serialize", 2, nif_serialize},
     {"nif_run", 3, nif_run},
     {"nif_call", 3, nif_call},
-    {"nif_idle", 1, nif_idle}
+    {"nif_idle", 1, nif_idle},
+    {"nif_respond", 2, nif_respond}
 };
 
 ERL_NIF_INIT(chakra, funcs, &load, NULL, NULL, &unload);

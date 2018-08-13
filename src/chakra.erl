@@ -26,6 +26,7 @@
 
     create_context/0,
     create_context/1,
+    create_context/2,
     serialize/2,
     run/2,
     run/3,
@@ -36,8 +37,16 @@
 ]).
 
 
+-record(chakra_ctx, {
+    runtime,
+    context,
+    callback_mod,
+    timeout
+}).
+
+
 -type runtime() :: reference().
--type context() :: reference().
+-type context() :: #chakra_ctx{}.
 -type script() :: reference().
 
 % Can be either an atom or binary using dotted notation
@@ -52,6 +61,12 @@
     | disable_native_code_generation
     | disable_eval
     | enable_experimental_features
+].
+
+
+-type context_opt() :: [
+    {callback_mod, Module::atom()}
+    | {timeout, Millis::integer()}
 ].
 
 
@@ -116,19 +131,44 @@ create_context() ->
     create_context(Runtime).
 
 
--spec create_context([runtime_opt()] | runtime()) ->
+-spec create_context(runtime()) ->
             {ok, context()} | {error, atom()}.
 create_context(Runtime) when is_reference(Runtime) ->
-    async(nif_create_context(Runtime));
-create_context(Options) when is_list(Options) ->
-    {ok, Runtime} = create_runtime(Options),
-    async(nif_create_context(Runtime)).
+    create_context(Runtime, []).
+
+
+-spec create_context(runtime(), [context_opt()]) ->
+            {ok, context()} | {error, atom()}.
+create_context(Runtime, Options) when is_list(Options) ->
+    CBModule = case lists:keyfind(callback_mod, 1, Options) of
+        {callback_mod, Module} ->
+            Module;
+        false ->
+            undefined
+    end,
+    TimeOut = case lists:keyfind(timeout, 1, Options) of
+        {timeout, TO} when is_integer(TO), TO > 0 ->
+            TO;
+        _ ->
+            infinity
+    end,
+    case async(nif_create_context(Runtime, CBModule /= undefined)) of
+        {ok, Ctx} ->
+            {ok, #chakra_ctx{
+                runtime = Runtime,
+                context = Ctx,
+                callback_mod = CBModule,
+                timeout = TimeOut
+            }};
+        Else ->
+            Else
+    end.
 
 
 -spec serialize(context(), binary()) ->
         {ok, script()} | {error, any()}.
 serialize(Ctx, Script) when is_binary(Script) ->
-    async(nif_serialize(Ctx, Script)).
+    async(Ctx, nif_serialize(Ctx#chakra_ctx.context, Script)).
 
 
 -spec run(context(), script()) ->
@@ -140,7 +180,7 @@ run(Ctx, Script) ->
 -spec run(context(), script(), [run_opt()]) ->
         {ok, js_val()} | {exception, any()} | {error, any()}.
 run(Ctx, SerializedScript, Opts) ->
-    async(nif_run(Ctx, SerializedScript, Opts)).
+    async(Ctx, nif_run(Ctx#chakra_ctx.context, SerializedScript, Opts)).
 
 
 -spec eval(context(), binary()) ->
@@ -169,12 +209,12 @@ call(Ctx, Name, Args) when is_binary(Name) ->
     call(Ctx, binary:split(Name, <<".">>, [global]), Args);
 
 call(Ctx, Name, Args) when is_list(Name), is_list(Args) ->
-    async(nif_call(Ctx, Name, Args)).
+    async(Ctx, nif_call(Ctx#chakra_ctx.context, Name, Args)).
 
 
 -spec idle(context()) -> ok | {error, any()}.
 idle(Ctx) ->
-    async(nif_idle(Ctx)).
+    async(Ctx, nif_idle(Ctx#chakra_ctx.context)).
 
 
 init() ->
@@ -192,11 +232,30 @@ init() ->
 
 async({ok, Ref}) when is_reference(Ref) ->
     receive
-        {Ref, Resp} ->
+        {Ref, resp, Resp} ->
             Resp
     end;
 async(Else) ->
     Else.
+
+
+async(#chakra_ctx{} = Ctx, {ok, Ref}) when is_reference(Ref) ->
+    #chakra_ctx{
+        runtime = JSRt,
+        context = JSCtx,
+        callback_mod = Mod,
+        timeout = TimeOut
+    } = Ctx,
+    receive
+        {Ref, resp, Resp} ->
+            Resp;
+        {Ref, call, Function, Args} ->
+            Result = Mod:handle_call(Function, Args),
+            async(Ctx, nif_respond(JSCtx, Result))
+    after TimeOut ->
+        ok = interrupt(JSRt),
+        erlang:error(chakra_timeout)
+    end.
 
 
 -define(NOT_LOADED, erlang:nif_error({chakra_nif_not_loaded, ?FILE, ?LINE})).
@@ -213,4 +272,4 @@ nif_serialize(_Ctx, _Script) -> ?NOT_LOADED.
 nif_run(_Ctx, _Script, _Opts) -> ?NOT_LOADED.
 nif_call(_Ctx, _Name, _Args) -> ?NOT_LOADED.
 nif_idle(_Ctx) -> ?NOT_LOADED.
-
+nif_respond(_Ctx, _Result) -> ?NOT_LOADED.

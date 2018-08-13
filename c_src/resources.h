@@ -32,7 +32,8 @@ typedef enum {
     ERL_CHAKRA_JOB_TYPE_SERIALIZE,
     ERL_CHAKRA_JOB_TYPE_RUN,
     ERL_CHAKRA_JOB_TYPE_CALL,
-    ERL_CHAKRA_JOB_TYPE_IDLE
+    ERL_CHAKRA_JOB_TYPE_IDLE,
+    ERL_CHAKRA_JOB_TYPE_RESPONSE
 } ErlChakraJobType;
 
 typedef struct _ErlChakraCtx ErlChakraCtx;

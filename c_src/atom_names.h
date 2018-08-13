@@ -75,6 +75,7 @@ ATOM_MAP(ok);
 ATOM_MAP(out_of_memory);
 ATOM_MAP(property_not_string);
 ATOM_MAP(property_not_symbol);
+ATOM_MAP(resp);
 ATOM_MAP(runtime_in_use);
 ATOM_MAP(script_compile);
 ATOM_MAP(script_eval_disabled);

@@ -209,6 +209,156 @@ erl_chakra_rt_disable(ErlChakraRt* rt, ErlChakraJob* job)
 }
 
 
+JsErrorCode
+erl_chakra_set_exception(const char* message)
+{
+    JsValueRef msg;
+    JsValueRef err_obj;
+    JsErrorCode err;
+
+    err = JsCreateString(message, strlen(message), &msg);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsCreateError(msg, &err_obj);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsSetException(err_obj);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    return JsNoError;
+}
+
+
+JsValueRef
+erl_chakra_call_erlang(
+        JsValueRef callee,
+        bool is_construct,
+        JsValueRef* argv,
+        unsigned short argc,
+        void* state
+    )
+{
+    ErlChakraCtx* ctx = (ErlChakraCtx*) state;
+
+    ErlNifEnv* env = NULL;
+    ERL_NIF_TERM name;
+    ERL_NIF_TERM args;
+
+    JsErrorCode err = JsNoError;
+
+    if(argc < 3) {
+        err = erl_chakra_set_exception("Missing required arguments");
+        goto done;
+    }
+
+    env = enif_alloc_env();
+    if(!js2erl(&conv, argv[2], &term)) {
+        err = erl_chakra_set_exception("Invalid message argument");
+        goto done;
+    }
+
+    if(!enif_send(NULL, pid, env, term)) {
+        err = erl_chakra_set_exception("Failed to send message");
+        goto done;
+    }
+
+done:
+    if(env != NULL) {
+        enif_free_env(env);
+    }
+
+    return JS_INVALID_REFERENCE;
+}
+
+
+JsErrorCode
+erl_chakra_define_function(
+        ErlChakraCtx* ctx,
+        JsValueRef obj,
+        const char* name,
+        JsNativeFunction func
+    )
+{
+    JsPropertyIdRef key;
+    JsValueRef js_name;
+    JsValueRef js_func;
+    JsErrorCode err;
+
+    err = JsCreatePropertyId(name, strlen(name), &key);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsCreateString(name, strlen(name), &js_name);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsCreateNamedFunction(js_name, func, ctx, &js_func);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    err = JsSetProperty(obj, key, js_func, false);
+    if(err != JsNoError) {
+        return err;
+    }
+
+    return JsNoError;
+}
+
+
+JsErrorCode
+erl_chakra_init_native_functions(ErlChakraCtx* ctx)
+{
+    JsValueRef global;
+    JsValueRef erlang;
+    JsPropertyIdRef key;
+    JsErrorCode err = JsNoError;;
+
+    err = JsSetCurrentContext(ctx->context);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsGetGlobalObject(&global);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsCreateObject(&erlang);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsCreatePropertyId("erlang", strlen("erlang"), &key);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = JsSetProperty(global, key, erlang, false);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+    err = erl_chakra_define_function(
+            ctx, erlang, "call", erl_chakra_call_erlang);
+    if(err != JsNoError) {
+        goto done;
+    }
+
+done:
+    JsSetCurrentContext(JS_INVALID_REFERENCE);
+    return err;
+}
+
+
 ERL_NIF_TERM
 erl_chakra_rt_create_context(ErlChakraRt* rt, ErlChakraJob* job)
 {
@@ -638,7 +788,7 @@ erl_chakra_load_script(
 bool
 erl_chakra_respond(ErlChakraRt* rt, ErlChakraJob* job, ERL_NIF_TERM msg)
 {
-    ERL_NIF_TERM wrapped = T2(job->env, job->ref, msg);
+    ERL_NIF_TERM wrapped = T3(job->env, job->ref, ATOM_resp, msg);
 
     if(!enif_send(NULL, &(rt->pid), job->env, wrapped)) {
         return false;
